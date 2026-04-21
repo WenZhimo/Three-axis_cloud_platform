@@ -1,0 +1,4 @@
+../Core/Src/main.c:97:10:micros	2
+../Core/Src/main.c:118:5:main	12
+../Core/Src/main.c:373:6:SystemClock_Config	4
+../Core/Src/main.c:423:6:Error_Handler	1
