@@ -65,18 +65,12 @@ float stepSmooth  = 0.0f;
 float step        = 0.0f;
 float step_speed  = 0.0f;
 
-// 横滚轴稳定参数
+// 横滚轴参数（与 pitch 同结构）
 #define ROLL_SENSOR_SIGN         (-1.0f)  // 若横滚反馈方向相反，改为 +1.0f
 #define ROLL_STATOR_SIGN         (-1.0f)  // 若校正方向相反，改为 +1.0f
-#define ROLL_CMD_LIMIT_RAD       (0.45f)  // 电角补偿最大限幅
+#define ROLL_CMD_LIMIT_RAD       (0.30f)
 #define ROLL_I_ENABLE_ERR_RAD    (1.20f)  // 误差超过该电角值时冻结积分
 #define ROLL_TARGET_SLEW_RAD_S   (0.90f)  // 机械目标角最大斜率（rad/s）
-#define ROLL_STICTION_ERR_RAD    (0.60f)  // 误差大但仍不动时触发防卡住补偿
-#define ROLL_MIN_DRIVE_RAD       (0.03f)  // 防卡住最小驱动力（电角）
-#define ROLL_LAND_ERR_RAD        (0.45f)  // 接近目标时进入减速着陆区
-#define ROLL_LAND_CMD_LIMIT_RAD  (0.18f)  // 着陆区内输出限幅
-#define ROLL_LAND_STEP_LIMIT_RAD (0.0010f) // 着陆区内单周期最大变化
-
 // 俯仰轴稳定参数
 #define PITCH_CMD_LIMIT_RAD      (0.30f)
 #define PITCH_I_ENABLE_ERR_RAD   (1.20f)
@@ -146,7 +140,6 @@ void computeMotorCommands(float dt)
         pitchGateOpen = 0;
         rollSettledTime = 0.0f;
     }
-
     // ========================= roll =========================
     if (eepromConfig.rollEnabled == true)
     {
@@ -156,7 +149,7 @@ void computeMotorCommands(float dt)
             roll_angle = 0.0f;
         }
 
-        // 横滚轴使能时：目标从当前角度起步，避免突然抽动
+        // 横滚轴放开时：目标从当前角度起步，避免开启瞬间抽动
         if (rollAxisWasEnabled == 0)
         {
             rollTargetSlew = roll_angle;
@@ -176,107 +169,82 @@ void computeMotorCommands(float dt)
             ROLL_TARGET_SLEW_RAD_S * safeDt
         );
 
-        float target_electrical_angle = rollTargetSlew * mechanical2electricalDegrees[ROLL];
-        float current_electrical_angle = roll_angle * mechanical2electricalDegrees[ROLL];
-
-        float roll_error = target_electrical_angle - current_electrical_angle;
-        uint8_t rollHoldIntegrators = (fabsf(roll_error) > ROLL_I_ENABLE_ERR_RAD);
-
-        if (rollHoldIntegrators)
         {
-            holdIntegrators = true;
-        }
+            float target_electrical_angle = rollTargetSlew * mechanical2electricalDegrees[ROLL];
+            float current_electrical_angle = roll_angle * mechanical2electricalDegrees[ROLL];
+            float roll_error = target_electrical_angle - current_electrical_angle;
+            uint8_t rollHoldIntegrators = (fabsf(roll_error) > ROLL_I_ENABLE_ERR_RAD);
 
-        pidCmd[ROLL] = updatePID(
-            target_electrical_angle,
-            current_electrical_angle,
-            safeDt,
-            rollHoldIntegrators,
-            &eepromConfig.PID[ROLL_PID]
-        );
-
-        if (isnan(pidCmd[ROLL]) || isinf(pidCmd[ROLL]))
-        {
-            pidCmd[ROLL] = 0.0f;
-        }
-
-        // 当误差较大但输出偏小时，给最小驱动力，避免 roll 卡住不动
-        if (fabsf(roll_error) > ROLL_STICTION_ERR_RAD && fabsf(pidCmd[ROLL]) < ROLL_MIN_DRIVE_RAD)
-        {
-            float driveSign = pidCmd[ROLL];
-            if (fabsf(driveSign) < 1e-6f)
+            if (rollHoldIntegrators)
             {
-                driveSign = roll_error;
+                holdIntegrators = true;
             }
 
-            pidCmd[ROLL] = (driveSign >= 0.0f) ? ROLL_MIN_DRIVE_RAD : -ROLL_MIN_DRIVE_RAD;
-        }
+            pidCmd[ROLL] = updatePID(
+                target_electrical_angle,
+                current_electrical_angle,
+                safeDt,
+                rollHoldIntegrators,
+                &eepromConfig.PID[ROLL_PID]
+            );
 
-        {
-            float absRollErr = fabsf(roll_error);
-            float rollCmdLimit = ROLL_CMD_LIMIT_RAD;
-            if (absRollErr < ROLL_LAND_ERR_RAD)
+            if (isnan(pidCmd[ROLL]) || isinf(pidCmd[ROLL]))
             {
-                rollCmdLimit = ROLL_LAND_CMD_LIMIT_RAD;
-            }
-            pidCmd[ROLL] = clampf(pidCmd[ROLL], -rollCmdLimit, rollCmdLimit);
-        }
-
-        {
-            float rollStepLimit = eepromConfig.rateLimit * safeDt;
-            float absRollErr = fabsf(roll_error);
-
-            if (rollStepLimit < AXIS_MIN_STEP_LIMIT_RAD)
-            {
-                rollStepLimit = AXIS_MIN_STEP_LIMIT_RAD;
-            }
-            if (absRollErr < ROLL_LAND_ERR_RAD && rollStepLimit > ROLL_LAND_STEP_LIMIT_RAD)
-            {
-                rollStepLimit = ROLL_LAND_STEP_LIMIT_RAD;
+                pidCmd[ROLL] = 0.0f;
             }
 
-            outputRate[ROLL] = pidCmd[ROLL] - pidCmdPrev[ROLL];
-            if (outputRate[ROLL] > rollStepLimit)
-            {
-                pidCmd[ROLL] = pidCmdPrev[ROLL] + rollStepLimit;
-            }
-            if (outputRate[ROLL] < -rollStepLimit)
-            {
-                pidCmd[ROLL] = pidCmdPrev[ROLL] - rollStepLimit;
-            }
-        }
+            pidCmd[ROLL] = clampf(pidCmd[ROLL], -ROLL_CMD_LIMIT_RAD, ROLL_CMD_LIMIT_RAD);
 
-        pidCmdPrev[ROLL] = pidCmd[ROLL];
-
-        {
-            float stator_electrical_angle = current_electrical_angle + ROLL_STATOR_SIGN * pidCmd[ROLL];
-            PWM_Motor_SetAngle(MOTOR_ROLL, stator_electrical_angle, 45.0f);
-        }
-
-        // 双轴同时启用时：roll 连续稳定一段时间后再放开 pitch
-        if (eepromConfig.pitchEnabled == true && pitchGateOpen == 0)
-        {
-            if (fabsf(roll_error) < ROLL_SETTLE_ERR_RAD && fabsf(pidCmd[ROLL]) < ROLL_SETTLE_CMD_RAD)
             {
-                rollSettledTime += safeDt;
-                if (rollSettledTime >= ROLL_SETTLE_TIME_S)
+                float rollStepLimit = eepromConfig.rateLimit * safeDt;
+                if (rollStepLimit < AXIS_MIN_STEP_LIMIT_RAD)
                 {
-                    pitchGateOpen = 1;
+                    rollStepLimit = AXIS_MIN_STEP_LIMIT_RAD;
+                }
+
+                outputRate[ROLL] = pidCmd[ROLL] - pidCmdPrev[ROLL];
+                if (outputRate[ROLL] > rollStepLimit)
+                {
+                    pidCmd[ROLL] = pidCmdPrev[ROLL] + rollStepLimit;
+                }
+                if (outputRate[ROLL] < -rollStepLimit)
+                {
+                    pidCmd[ROLL] = pidCmdPrev[ROLL] - rollStepLimit;
                 }
             }
-            else
+
+            pidCmdPrev[ROLL] = pidCmd[ROLL];
+
             {
-                rollSettledTime = 0.0f;
+                float stator_electrical_angle = current_electrical_angle + ROLL_STATOR_SIGN * pidCmd[ROLL];
+                PWM_Motor_SetAngle(MOTOR_ROLL, stator_electrical_angle, eepromConfig.rollPower);
+            }
+
+            // 双轴同时启用时：roll 连续稳定一段时间后再放开 pitch
+            if (eepromConfig.pitchEnabled == true && pitchGateOpen == 0)
+            {
+                if (fabsf(roll_error) < ROLL_SETTLE_ERR_RAD && fabsf(pidCmd[ROLL]) < ROLL_SETTLE_CMD_RAD)
+                {
+                    rollSettledTime += safeDt;
+                    if (rollSettledTime >= ROLL_SETTLE_TIME_S)
+                    {
+                        pitchGateOpen = 1;
+                    }
+                }
+                else
+                {
+                    rollSettledTime = 0.0f;
+                }
             }
         }
     }
     else
     {
         rollAxisWasEnabled = 0;
+        pidCmdPrev[ROLL] = 0.0f;
         pitchGateOpen = 1;
         rollSettledTime = 0.0f;
     }
-
     // ========================= pitch =========================
     if (eepromConfig.pitchEnabled == true)
     {

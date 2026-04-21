@@ -2,5 +2,5 @@
 ../Drivers/SRC/Src/computeMotorCommands.c:18:14:moveTowardsf	3
 ../Drivers/SRC/Src/computeMotorCommands.c:28:14:wrapToPif	3
 ../Drivers/SRC/Src/computeMotorCommands.c:35:14:moveTowardsAnglef	3
-../Drivers/SRC/Src/computeMotorCommands.c:104:7:autoPan	3
-../Drivers/SRC/Src/computeMotorCommands.c:127:6:computeMotorCommands	69
+../Drivers/SRC/Src/computeMotorCommands.c:98:7:autoPan	3
+../Drivers/SRC/Src/computeMotorCommands.c:121:6:computeMotorCommands	62
