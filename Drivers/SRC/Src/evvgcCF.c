@@ -34,11 +34,11 @@ void initOrientation()
         // ==============================================
         // 🔥 仅计算 PITCH 俯仰角（ROLL 已注释）
         // ==============================================
-        // accAngle[ROLL]  += atan2f(-sensors.accel500Hz[YAXIS], -sensors.accel500Hz[ZAXIS]);
+        accAngle[ROLL]  += atan2f(-sensors.accel500Hz[YAXIS], -sensors.accel500Hz[ZAXIS]);
         accAngle[PITCH] += atan2f(sensors.accel500Hz[XAXIS], -sensors.accel500Hz[ZAXIS]);
 
         // 求平均值（仅 PITCH）
-        // accAngleSmooth[ROLL ] = accAngle[ROLL ] / (float)initLoops;
+        accAngleSmooth[ROLL ] = accAngle[ROLL ] / (float)initLoops;
         accAngleSmooth[PITCH] = accAngle[PITCH] / (float)initLoops;
 
         HAL_Delay(2);  // 👈 替换为 HAL 库延时
@@ -50,7 +50,7 @@ void initOrientation()
 
     // 这里有问题，直接把一开始的位置设为0了，但开始的时候样子是千奇百怪的，要找到他确定的位置
     sensors.evvgcCFAttitude500Hz[PITCH] = accAngleSmooth[PITCH];
-    // sensors.evvgcCFAttitude500Hz[ROLL ] = accAngleSmooth[ROLL ];
+    sensors.evvgcCFAttitude500Hz[ROLL ] = accAngleSmooth[ROLL ];
     // sensors.evvgcCFAttitude500Hz[YAW  ] = 0.0f;
 }
 

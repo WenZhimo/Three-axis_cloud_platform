@@ -94,6 +94,8 @@ bool frame_500Hz = false;
 
 // 开机姿态收敛延时计数器
 uint32_t startup_delay_counter = 0;
+float attitude_deg_prev[3] = {0.0f, 0.0f, 0.0f};
+uint8_t attitude_delta_initialized = 0;
 
 uint32_t micros(void)
 {
@@ -170,6 +172,11 @@ int main(void)
   initPID();
   // 5.最后初始化mpu6050
   orientIMU();
+  printf(">>> IMU orientation=%u matrix=[%d,%d,%d;%d,%d,%d;%d,%d,%d]\r\n",
+         (unsigned int)eepromConfig.imuOrientation,
+         orientationMatrix[0], orientationMatrix[1], orientationMatrix[2],
+         orientationMatrix[3], orientationMatrix[4], orientationMatrix[5],
+         orientationMatrix[6], orientationMatrix[7], orientationMatrix[8]);
   if (MPU6050_Init(ACCEL_FS_4G, GYRO_FS_500DPS, DLPF_CFG_42HZ))
   {
     HAL_GPIO_WritePin(LED1_GPIO, LED1_PIN, GPIO_PIN_SET);
@@ -312,40 +319,72 @@ int main(void)
 
       // 确保已经度过了开机不稳定的阶段再开始打印数据
       // ==================== ROLL 10Hz 调试打印（核心）====================
-      if (systemReady && eepromConfig.rollEnabled)
+      if (systemReady)
       {
-        // 与 computeMotorCommands.c 中 ROLL_SENSOR_SIGN 保持一致，用于验证反馈方向
-        const float roll_sensor_sign_dbg = -1.0f;
-        float roll_target_deg = pointingCmd[ROLL] * 57.29578f;
-        float roll_curr_deg_raw = sensors.margAttitude500Hz[ROLL] * 57.29578f;
-        float roll_curr_deg_ctrl = (roll_sensor_sign_dbg * sensors.margAttitude500Hz[ROLL]) * 57.29578f;
-        float roll_err_deg_ctrl = roll_target_deg - roll_curr_deg_ctrl;
-        float roll_err_ele = (pointingCmd[ROLL] - roll_sensor_sign_dbg * sensors.margAttitude500Hz[ROLL]) * mechanical2electricalDegrees[ROLL];
-        float roll_gyro_deg_s = sensors.gyro500Hz[ROLL] * 57.29578f;
-        printf("%.2f,%.2f,%.2f,%.2f,%.3f,%.2f,%.4f,%.5f,%.5f,%.5f,%.5f,%u,%.4f,%.1f,%.4f\r\n",
-               roll_target_deg,
-               roll_curr_deg_raw,
-               roll_curr_deg_ctrl,
-               roll_err_deg_ctrl,
-               roll_err_ele,
-               roll_gyro_deg_s,
-               pidCmd[ROLL],
-               outputRate[ROLL],
+        float roll_deg = sensors.margAttitude500Hz[ROLL] * 57.29578f;
+        float pitch_deg = sensors.margAttitude500Hz[PITCH] * 57.29578f;
+        float yaw_deg = sensors.margAttitude500Hz[YAW] * 57.29578f;
+
+        float d_roll_deg = 0.0f;
+        float d_pitch_deg = 0.0f;
+        float d_yaw_deg = 0.0f;
+
+        if (attitude_delta_initialized)
+        {
+          d_roll_deg = roll_deg - attitude_deg_prev[ROLL];
+          d_pitch_deg = pitch_deg - attitude_deg_prev[PITCH];
+          d_yaw_deg = yaw_deg - attitude_deg_prev[YAW];
+        }
+        else
+        {
+          attitude_delta_initialized = 1;
+        }
+
+        attitude_deg_prev[ROLL] = roll_deg;
+        attitude_deg_prev[PITCH] = pitch_deg;
+        attitude_deg_prev[YAW] = yaw_deg;
+
+        printf("[ATT10Hz] r=%.2f p=%.2f y=%.2f dr=%.2f dp=%.2f dy=%.2f gr=%.2f gp=%.2f gy=%.2f imuOri=%u\r\n",
+               roll_deg,
+               pitch_deg,
+               yaw_deg,
+               d_roll_deg,
+               d_pitch_deg,
+               d_yaw_deg,
+               sensors.gyro500Hz[ROLL] * 57.29578f,
+               sensors.gyro500Hz[PITCH] * 57.29578f,
+               sensors.gyro500Hz[YAW] * 57.29578f,
+               (unsigned int)eepromConfig.imuOrientation);
+
+        printf("[ROLL10Hz] en=%u tgt=%.2f slew=%.2f raw=%.2f ctrl=%.2f err=%.2f errEle=%.3f pidRaw=%.4f pidC=%.4f pidOut=%.4f dPidRaw=%.4f i=%.5f d=%.5f dCalc=%.5f holdI=%u step=%.4f pwr=%.1f rl=%.4f sSens=%.0f sSta=%.0f errS+=%.2f errS-=%.2f\r\n",
+               (unsigned int)eepromConfig.rollEnabled,
+               rollDiag.targetMechRad * 57.29578f,
+               rollDiag.targetSlewMechRad * 57.29578f,
+               rollDiag.currentRawMechRad * 57.29578f,
+               rollDiag.currentCtrlMechRad * 57.29578f,
+               rollDiag.errMechRad * 57.29578f,
+               rollDiag.errElecRad,
+               rollDiag.pidRaw,
+               rollDiag.pidClamped,
+               rollDiag.pidApplied,
+               rollDiag.dPidRaw,
                eepromConfig.PID[ROLL_PID].iTerm,
                eepromConfig.PID[ROLL_PID].lastDterm,
                eepromConfig.PID[ROLL_PID].lastDcalcValue,
-               (unsigned int)holdIntegrators,
-               dt500Hz,
+               (unsigned int)rollDiag.holdI,
+               rollDiag.stepLimit,
                eepromConfig.rollPower,
-               eepromConfig.rateLimit);
+               eepromConfig.rateLimit,
+               rollDiag.sensorSign,
+               rollDiag.statorSign,
+               rollDiag.errIfSensorPlusDeg,
+               rollDiag.errIfSensorMinusDeg);
+
         if (fabsf(eepromConfig.PID[ROLL_PID].iTerm) > 0.35f)
         {
           printf("!!! WARN ROLL iTerm high: %.5f\r\n", eepromConfig.PID[ROLL_PID].iTerm);
         }
       }
-
-      // 确保已经度过了开机不稳定的阶段再开始打印数据
-      // ==================== PITCH 调试打印（核心）====================
       /*if (systemReady && eepromConfig.pitchEnabled)
       {
         float pitch_angle_deg = sensors.margAttitude500Hz[PITCH] * 57.29578f;
