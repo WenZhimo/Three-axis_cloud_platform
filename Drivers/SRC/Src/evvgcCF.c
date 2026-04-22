@@ -51,7 +51,7 @@ void initOrientation()
     // 这里有问题，直接把一开始的位置设为0了，但开始的时候样子是千奇百怪的，要找到他确定的位置
     sensors.evvgcCFAttitude500Hz[PITCH] = accAngleSmooth[PITCH];
     sensors.evvgcCFAttitude500Hz[ROLL ] = accAngleSmooth[ROLL ];
-    // sensors.evvgcCFAttitude500Hz[YAW  ] = 0.0f;
+    sensors.evvgcCFAttitude500Hz[YAW  ] = 0.0f;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -93,10 +93,9 @@ void getOrientation(float *smoothAcc, float *orient, float *accData, float *gyro
     // ==============================================
     // ❌ 以下 ROLL / YAW 代码全部注释（不需要）
     // ==============================================
-    /*
+
     gyroRate[ROLL]  =  gyroData[ROLL] * cosf(fabsf(orient[PITCH])) + gyroData[YAW] * sinf(orient[PITCH]);
     orient[ROLL]    = (orient[ROLL] + gyroRate[ROLL] * dt) + 0.0002f * (smoothAcc[ROLL] - orient[ROLL]);
     gyroRate[YAW]   =  gyroData[YAW] * cosf(fabsf(orient[PITCH])) - gyroData[ROLL] * sinf(orient[PITCH]);
     orient[YAW]     = (orient[YAW] + gyroRate[YAW] * dt);
-    */
 }

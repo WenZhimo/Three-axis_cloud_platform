@@ -1,6 +1,6 @@
 ../Drivers/SRC/Src/computeMotorCommands.c:11:14:clampf	3
-../Drivers/SRC/Src/computeMotorCommands.c:18:14:moveTowardsf	3
-../Drivers/SRC/Src/computeMotorCommands.c:28:14:wrapToPif	3
-../Drivers/SRC/Src/computeMotorCommands.c:35:14:moveTowardsAnglef	3
-../Drivers/SRC/Src/computeMotorCommands.c:98:7:autoPan	3
-../Drivers/SRC/Src/computeMotorCommands.c:121:6:computeMotorCommands	62
+../Drivers/SRC/Src/computeMotorCommands.c:20:14:moveTowardsf	3
+../Drivers/SRC/Src/computeMotorCommands.c:32:14:wrapToPif	3
+../Drivers/SRC/Src/computeMotorCommands.c:41:14:moveTowardsAnglef	3
+../Drivers/SRC/Src/computeMotorCommands.c:115:7:autoPan	3
+../Drivers/SRC/Src/computeMotorCommands.c:138:6:computeMotorCommands	30

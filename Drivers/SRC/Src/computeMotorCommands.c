@@ -104,6 +104,14 @@ static uint8_t yawAxisWasEnabled = 0;
 static uint8_t pitchGateOpen = 0;
 static float rollSettledTime = 0.0f;
 
+// ====================== 新增：保存上一次的物理电角度 ======================
+static float last_current_electrical_roll = 0.0f;
+static uint8_t first_run_roll = 1;  // 新增：第一次运行标记
+
+static float last_current_electrical_pitch = 0.0f;
+static uint8_t first_run_pitch = 1;  // 新增：第一次运行标记
+// ======================================================================
+
 float autoPan(float motorPos, float setpoint)
 {
     if (motorPos < centerPoint - YAP_DEADBAND)
@@ -129,13 +137,6 @@ float autoPan(float motorPos, float setpoint)
 
 void computeMotorCommands(float dt)
 {
-    float safeDt = dt;
-
-    if (safeDt > 0.01f || safeDt < 0.0001f || isnan(safeDt) || isinf(safeDt))
-    {
-        safeDt = 0.002f;
-    }
-
     holdIntegrators = false;
 
     // 门控状态初始化//先不改
@@ -150,7 +151,7 @@ void computeMotorCommands(float dt)
         rollSettledTime = 0.0f;
     }
     // ========================= roll =========================
-    if (eepromConfig.rollEnabled == true)
+   /* if (eepromConfig.rollEnabled == true)
     {
         float roll_raw_angle = sensors.margAttitude500Hz[ROLL];
         float roll_angle = ROLL_SENSOR_SIGN * roll_raw_angle;
@@ -296,112 +297,144 @@ void computeMotorCommands(float dt)
         rollDiag.errIfSensorMinusDeg = (pointingCmd[ROLL] + sensors.margAttitude500Hz[ROLL]) * 57.29578f;
         rollDiag.sensorSign = ROLL_SENSOR_SIGN;
         rollDiag.statorSign = ROLL_STATOR_SIGN;
-    }
+    }*/
+
+    // ========================= roll =========================
+	if (eepromConfig.rollEnabled == true)
+	{
+		// =============== 【角度防NaN】===============
+		float roll_angle = -sensors.margAttitude500Hz[ROLL];
+
+		if (isnan(roll_angle) || isinf(roll_angle))
+		{
+			roll_angle = 0.0f;
+		}
+
+		// ==========================================
+		// 🔥 提取电角度计算：方便复用
+		// ==========================================
+		// 目标电角度 (通常 pointingCmd 是 0)
+		float target_electrical_angle = pointingCmd[ROLL] * mechanical2electricalDegrees[ROLL];
+		// 当前物理电角度 (机械角度 * 极对数)
+		float current_electrical_angle = roll_angle * mechanical2electricalDegrees[ROLL];
+
+		// 调用 PID 计算补偿量
+		pidCmd[ROLL] = updatePID(
+			target_electrical_angle,
+			current_electrical_angle,
+			dt,
+			holdIntegrators,
+			&eepromConfig.PID[ROLL_PID]
+		);
+
+		// =============== PID输出防NaN ===============
+		if (isnan(pidCmd[ROLL]) || isinf(pidCmd[ROLL]))
+		{
+			pidCmd[ROLL] = 0.0f;
+		}
+
+		// ==========================================
+		// 防止 PID 没调好时，输出过大的补偿角导致电机暴力抽搐
+		// ==========================================
+		if (pidCmd[ROLL] >  0.5f) pidCmd[ROLL] =  0.5f;
+		if (pidCmd[ROLL] < -0.5f) pidCmd[ROLL] = -0.5f;
+
+		// =============== 速率限制 (防抖) ===============
+		outputRate[ROLL] = pidCmd[ROLL] - pidCmdPrev[ROLL];
+
+		if (outputRate[ROLL] > eepromConfig.rateLimit)
+			pidCmd[ROLL] = pidCmdPrev[ROLL] + eepromConfig.rateLimit;
+
+		if (outputRate[ROLL] < -eepromConfig.rateLimit)
+			pidCmd[ROLL] = pidCmdPrev[ROLL] - eepromConfig.rateLimit;
+
+		pidCmdPrev[ROLL] = pidCmd[ROLL];
+
+		// ==============================================
+		// 🔥🔥🔥 核心 FOC 修复：定子磁场超前/滞后
+		// 目标磁场角度 = 当前真实位置 + PID要求补偿的偏差量
+		// ==============================================
+		float stator_electrical_angle = current_electrical_angle + pidCmd[ROLL];
+
+		// 发送给电机驱动 (35.0f 是功率，觉得没力气可以稍微加大，但别超过电机额定发热范围)
+		PWM_Motor_SetAngle(MOTOR_ROLL, stator_electrical_angle, 45.0f);
+	}
+
     // ========================= pitch =========================
     if (eepromConfig.pitchEnabled == true)
-    {
-        float pitch_angle = sensors.margAttitude500Hz[PITCH];
-        if (isnan(pitch_angle) || isinf(pitch_angle))
-        {
-            pitch_angle = 0.0f;
-        }
+	{
+		// =============== 【角度防NaN】===============
+		float pitch_angle = sensors.margAttitude500Hz[PITCH];
 
-        // roll 未达稳定前，pitch 暂不参与闭环，避免双轴互相耦合乱振
-        if (eepromConfig.rollEnabled == true && pitchGateOpen == 0)
-        {
-            pitchAxisWasEnabled = 0;
-            pidCmdPrev[PITCH] = 0.0f;
-            eepromConfig.PID[PITCH_PID].iTerm = 0.0f;
-            eepromConfig.PID[PITCH_PID].lastDcalcValue = 0.0f;
-            eepromConfig.PID[PITCH_PID].lastDterm = 0.0f;
-            eepromConfig.PID[PITCH_PID].lastLastDterm = 0.0f;
+		if (isnan(pitch_angle) || isinf(pitch_angle))
+		{
+			pitch_angle = 0.0f;
+		}
 
-            {
-                float current_electrical_angle = pitch_angle * mechanical2electricalDegrees[PITCH];
-                PWM_Motor_SetAngle(MOTOR_PITCH, current_electrical_angle, 45.0f);
-            }
+		// ==========================================
+		// 🔥 提取电角度计算：方便复用
+		// ==========================================
+		// 目标电角度 (通常 pointingCmd 是 0)
+		float target_electrical_angle = pointingCmd[PITCH] * mechanical2electricalDegrees[PITCH];
+		// 当前物理电角度 (机械角度 * 极对数)
+		float current_electrical_angle = pitch_angle * mechanical2electricalDegrees[PITCH];
 
-            return;
-        }
+		// ====================== 角度差判断 ======================
+		float delta_pitch = fabsf(current_electrical_angle - last_current_electrical_pitch);
 
-        // 俯仰轴放开时：目标从当前角度起步，避免开启瞬间抽动
-        if (pitchAxisWasEnabled == 0)
-        {
-            pitchTargetSlew = pitch_angle;
+		if (!first_run_pitch && delta_pitch < 1.0f)
+		{
 
-            pidCmdPrev[PITCH] = 0.0f;
-            eepromConfig.PID[PITCH_PID].iTerm = 0.0f;
-            eepromConfig.PID[PITCH_PID].lastDcalcValue = 0.0f;
-            eepromConfig.PID[PITCH_PID].lastDterm = 0.0f;
-            eepromConfig.PID[PITCH_PID].lastLastDterm = 0.0f;
+		}
 
-            pitchAxisWasEnabled = 1;
-        }
+		first_run_pitch = 0;  // 第一次运行后关闭标记
+		last_current_electrical_pitch = current_electrical_angle;
+		// ========================================================================
 
-        pitchTargetSlew = moveTowardsf(
-            pitchTargetSlew,
-            pointingCmd[PITCH],
-            PITCH_TARGET_SLEW_RAD_S * safeDt);
+		// 调用 PID 计算补偿量
+		pidCmd[PITCH] = updatePID(
+			target_electrical_angle,
+			current_electrical_angle,
+			dt,
+			holdIntegrators,
+			&eepromConfig.PID[PITCH_PID]
+		);
 
-        {
-            float target_electrical_angle = pitchTargetSlew * mechanical2electricalDegrees[PITCH];
-            float current_electrical_angle = pitch_angle * mechanical2electricalDegrees[PITCH];
+		// =============== PID输出防NaN ===============
+		if (isnan(pidCmd[PITCH]) || isinf(pidCmd[PITCH]))
+		{
+			pidCmd[PITCH] = 0.0f;
+		}
 
-            float pitch_error = target_electrical_angle - current_electrical_angle;
-            uint8_t pitchHoldIntegrators = (fabsf(pitch_error) > PITCH_I_ENABLE_ERR_RAD);
+		// ==========================================
+		// 防止 PID 没调好时，输出过大的补偿角导致电机暴力抽搐
+		// ==========================================
+		if (pidCmd[PITCH] >  0.5f) pidCmd[PITCH] =  0.5f;
+		if (pidCmd[PITCH] < -0.5f) pidCmd[PITCH] = -0.5f;
 
-            if (pitchHoldIntegrators)
-            {
-                holdIntegrators = true;
-            }
+		// =============== 速率限制 (防抖) ===============
+		outputRate[PITCH] = pidCmd[PITCH] - pidCmdPrev[PITCH];
 
-            pidCmd[PITCH] = updatePID(
-                target_electrical_angle,
-                current_electrical_angle,
-                safeDt,
-                pitchHoldIntegrators,
-                &eepromConfig.PID[PITCH_PID]);
+		if (outputRate[PITCH] > eepromConfig.rateLimit)
+			pidCmd[PITCH] = pidCmdPrev[PITCH] + eepromConfig.rateLimit;
 
-            if (isnan(pidCmd[PITCH]) || isinf(pidCmd[PITCH]))
-            {
-                pidCmd[PITCH] = 0.0f;
-            }
+		if (outputRate[PITCH] < -eepromConfig.rateLimit)
+			pidCmd[PITCH] = pidCmdPrev[PITCH] - eepromConfig.rateLimit;
 
-            pidCmd[PITCH] = clampf(pidCmd[PITCH], -PITCH_CMD_LIMIT_RAD, PITCH_CMD_LIMIT_RAD);
+		pidCmdPrev[PITCH] = pidCmd[PITCH];
 
-            {
-                float pitchStepLimit = eepromConfig.rateLimit * safeDt;
-                if (pitchStepLimit < AXIS_MIN_STEP_LIMIT_RAD)
-                {
-                    pitchStepLimit = AXIS_MIN_STEP_LIMIT_RAD;
-                }
+		// ==============================================
+		// 🔥🔥🔥 核心 FOC 修复：定子磁场超前/滞后
+		// 目标磁场角度 = 当前真实位置 + PID要求补偿的偏差量
+		// ==============================================
+		float stator_electrical_angle = current_electrical_angle + pidCmd[PITCH];
 
-                outputRate[PITCH] = pidCmd[PITCH] - pidCmdPrev[PITCH];
-                if (outputRate[PITCH] > pitchStepLimit)
-                {
-                    pidCmd[PITCH] = pidCmdPrev[PITCH] + pitchStepLimit;
-                }
-                if (outputRate[PITCH] < -pitchStepLimit)
-                {
-                    pidCmd[PITCH] = pidCmdPrev[PITCH] - pitchStepLimit;
-                }
-            }
+		// 发送给电机驱动 (35.0f 是功率，觉得没力气可以稍微加大，但别超过电机额定发热范围)
+		PWM_Motor_SetAngle(MOTOR_PITCH, stator_electrical_angle, 45.0f);
 
-            pidCmdPrev[PITCH] = pidCmd[PITCH];
-
-            {
-                float stator_electrical_angle = current_electrical_angle - pidCmd[PITCH];
-                PWM_Motor_SetAngle(MOTOR_PITCH, stator_electrical_angle, 45.0f);
-            }
-        }
-    }
-    else
-    {
-        pitchAxisWasEnabled = 0;
-    }
-
+	}
     // ========================= yaw =========================
-    if (eepromConfig.yawEnabled == true)
+   /* if (eepromConfig.yawEnabled == true)
     {
         float yaw_angle = sensors.margAttitude500Hz[YAW];
         if (isnan(yaw_angle) || isinf(yaw_angle))
@@ -486,5 +519,5 @@ void computeMotorCommands(float dt)
     {
         yawAxisWasEnabled = 0;
         pidCmdPrev[YAW] = 0.0f;
-    }
+    }*/
 }
