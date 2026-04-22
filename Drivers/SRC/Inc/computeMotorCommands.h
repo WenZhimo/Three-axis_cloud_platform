@@ -25,6 +25,8 @@ extern float electrical2mechanicalDegrees[3];
 // 三轴 PID 最终输出控制量（给电机驱动）
 extern float pidCmd[3];
 
+extern float outputRate[3];
+
 //==================== 函数声明 ====================
 /**
  * @brief  电机控制核心函数：计算三轴电机输出

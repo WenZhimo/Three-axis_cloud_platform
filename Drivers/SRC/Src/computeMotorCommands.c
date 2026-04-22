@@ -10,8 +10,10 @@
 
 static float clampf(float value, float minValue, float maxValue)
 {
-    if (value > maxValue) return maxValue;
-    if (value < minValue) return minValue;
+    if (value > maxValue)
+        return maxValue;
+    if (value < minValue)
+        return minValue;
     return value;
 }
 
@@ -19,16 +21,20 @@ static float moveTowardsf(float current, float target, float maxStep)
 {
     float delta = target - current;
 
-    if (delta > maxStep)  return current + maxStep;
-    if (delta < -maxStep) return current - maxStep;
+    if (delta > maxStep)
+        return current + maxStep;
+    if (delta < -maxStep)
+        return current - maxStep;
 
     return target;
 }
 
 static float wrapToPif(float angle)
 {
-    while (angle > PI)  angle -= TWO_PI;
-    while (angle < -PI) angle += TWO_PI;
+    while (angle > PI)
+        angle -= TWO_PI;
+    while (angle < -PI)
+        angle += TWO_PI;
     return angle;
 }
 
@@ -36,55 +42,57 @@ static float moveTowardsAnglef(float current, float target, float maxStep)
 {
     float delta = wrapToPif(target - current);
 
-    if (delta > maxStep)  delta = maxStep;
-    if (delta < -maxStep) delta = -maxStep;
+    if (delta > maxStep)
+        delta = maxStep;
+    if (delta < -maxStep)
+        delta = -maxStep;
 
     return wrapToPif(current + delta);
 }
 
 // 机械弧度 -> 电角弧度转换系数
-float mechanical2electricalDegrees[3] = { 7.0f, 7.0f, 7.0f };
-float electrical2mechanicalDegrees[3] = { 1.0f / 7.0f, 1.0f / 7.0f, 1.0f / 7.0f };
+float mechanical2electricalDegrees[3] = {7.0f, 7.0f, 7.0f};
+float electrical2mechanicalDegrees[3] = {1.0f / 7.0f, 1.0f / 7.0f, 1.0f / 7.0f};
 
 // 横滚 / 俯仰 / 偏航 目标角（弧度）
-float pointingCmd[3] = { 0.0f, 0.0f, 0.0f };
+float pointingCmd[3] = {0.0f, 0.0f, 0.0f};
 
 float outputRate[3];
 float pidCmd[3];
-float pidCmdPrev[3] = { 0.0f, 0.0f, 0.0f };
+float pidCmdPrev[3] = {0.0f, 0.0f, 0.0f};
 
 float yawCmd;
 
 // 自动回中参数（偏航辅助）
-#define YAP_DEADBAND     2.00f
-#define MOTORPOS2SETPNT  0.35f
-#define AUTOPANSMOOTH   40.00f
+#define YAP_DEADBAND 2.00f
+#define MOTORPOS2SETPNT 0.35f
+#define AUTOPANSMOOTH 40.00f
 
 float centerPoint = 0.0f;
-float stepSmooth  = 0.0f;
-float step        = 0.0f;
-float step_speed  = 0.0f;
+float stepSmooth = 0.0f;
+float step = 0.0f;
+float step_speed = 0.0f;
 
 // 横滚轴参数（与 pitch 同结构）
-#define ROLL_SENSOR_SIGN         (-1.0f)  // 若横滚反馈方向相反，改为 +1.0f
-#define ROLL_STATOR_SIGN         (-1.0f)  // 若校正方向相反，改为 +1.0f
-#define ROLL_CMD_LIMIT_RAD       (0.30f)
-#define ROLL_I_ENABLE_ERR_RAD    (1.20f)  // 误差超过该电角值时冻结积分
-#define ROLL_TARGET_SLEW_RAD_S   (0.90f)  // 机械目标角最大斜率（rad/s）
+#define ROLL_SENSOR_SIGN (-1.0f) // 若横滚反馈方向相反，改为 +1.0f
+#define ROLL_STATOR_SIGN (-1.0f) // 若校正方向相反，改为 +1.0f
+#define ROLL_CMD_LIMIT_RAD (0.30f)
+#define ROLL_I_ENABLE_ERR_RAD (1.20f)  // 误差超过该电角值时冻结积分
+#define ROLL_TARGET_SLEW_RAD_S (0.90f) // 机械目标角最大斜率（rad/s）
 // 俯仰轴稳定参数
-#define PITCH_CMD_LIMIT_RAD      (0.30f)
-#define PITCH_I_ENABLE_ERR_RAD   (1.20f)
-#define PITCH_TARGET_SLEW_RAD_S  (0.90f)
-#define YAW_STATOR_SIGN          (-1.0f)
-#define YAW_CMD_LIMIT_RAD        (0.30f)
-#define YAW_I_ENABLE_ERR_RAD     (1.20f)
-#define YAW_TARGET_SLEW_RAD_S    (0.90f)
-#define AXIS_MIN_STEP_LIMIT_RAD  (0.001f)
+#define PITCH_CMD_LIMIT_RAD (0.30f)
+#define PITCH_I_ENABLE_ERR_RAD (1.20f)
+#define PITCH_TARGET_SLEW_RAD_S (0.90f)
+#define YAW_STATOR_SIGN (-1.0f)
+#define YAW_CMD_LIMIT_RAD (0.30f)
+#define YAW_I_ENABLE_ERR_RAD (1.20f)
+#define YAW_TARGET_SLEW_RAD_S (0.90f)
+#define AXIS_MIN_STEP_LIMIT_RAD (0.001f)
 
 // 双轴联调：先让 roll 到位，再放开 pitch
-#define ROLL_SETTLE_ERR_RAD      (0.20f)  // roll 到位误差阈值（电角）
-#define ROLL_SETTLE_CMD_RAD      (0.12f)  // roll 输出较小阈值（电角）
-#define ROLL_SETTLE_TIME_S       (0.25f)  // 连续满足阈值的时间（秒）
+#define ROLL_SETTLE_ERR_RAD (0.20f) // roll 到位误差阈值（电角）
+#define ROLL_SETTLE_CMD_RAD (0.12f) // roll 输出较小阈值（电角）
+#define ROLL_SETTLE_TIME_S (0.25f)  // 连续满足阈值的时间（秒）
 
 static float rollTargetSlew = 0.0f;
 static uint8_t rollAxisWasEnabled = 0;
@@ -166,8 +174,7 @@ void computeMotorCommands(float dt)
         rollTargetSlew = moveTowardsf(
             rollTargetSlew,
             pointingCmd[ROLL],
-            ROLL_TARGET_SLEW_RAD_S * safeDt
-        );
+            ROLL_TARGET_SLEW_RAD_S * safeDt);
 
         {
             float target_electrical_angle = rollTargetSlew * mechanical2electricalDegrees[ROLL];
@@ -185,8 +192,7 @@ void computeMotorCommands(float dt)
                 current_electrical_angle,
                 safeDt,
                 rollHoldIntegrators,
-                &eepromConfig.PID[ROLL_PID]
-            );
+                &eepromConfig.PID[ROLL_PID]);
 
             if (isnan(pidCmd[ROLL]) || isinf(pidCmd[ROLL]))
             {
@@ -289,8 +295,7 @@ void computeMotorCommands(float dt)
         pitchTargetSlew = moveTowardsf(
             pitchTargetSlew,
             pointingCmd[PITCH],
-            PITCH_TARGET_SLEW_RAD_S * safeDt
-        );
+            PITCH_TARGET_SLEW_RAD_S * safeDt);
 
         {
             float target_electrical_angle = pitchTargetSlew * mechanical2electricalDegrees[PITCH];
@@ -309,8 +314,7 @@ void computeMotorCommands(float dt)
                 current_electrical_angle,
                 safeDt,
                 pitchHoldIntegrators,
-                &eepromConfig.PID[PITCH_PID]
-            );
+                &eepromConfig.PID[PITCH_PID]);
 
             if (isnan(pidCmd[PITCH]) || isinf(pidCmd[PITCH]))
             {
@@ -378,8 +382,7 @@ void computeMotorCommands(float dt)
         yawTargetSlew = moveTowardsAnglef(
             yawTargetSlew,
             wrapToPif(pointingCmd[YAW]),
-            YAW_TARGET_SLEW_RAD_S * safeDt
-        );
+            YAW_TARGET_SLEW_RAD_S * safeDt);
 
         {
             float yaw_error_mech = wrapToPif(yawTargetSlew - yaw_angle);
@@ -398,8 +401,7 @@ void computeMotorCommands(float dt)
                 current_electrical_angle,
                 safeDt,
                 yawHoldIntegrators,
-                &eepromConfig.PID[YAW_PID]
-            );
+                &eepromConfig.PID[YAW_PID]);
 
             if (isnan(pidCmd[YAW]) || isinf(pidCmd[YAW]))
             {
