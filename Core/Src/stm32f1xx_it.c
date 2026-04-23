@@ -226,25 +226,6 @@ void SysTick_Handler(void)
 			gyroData500Hz[YAW] = rawGyro[YAW].value;*/
 		}
 
-		/*if ((frameCounter % COUNT_100HZ) == 0)
-		{
-			frame_100Hz = true;
-		}
-
-		if ((frameCounter % COUNT_50HZ) == 0)
-		{
-			frame_50Hz = true;
-		}
-
-		if ((frameCounter % COUNT_10HZ) == 0)
-			frame_10Hz = true;
-
-		if ((frameCounter % COUNT_5HZ) == 0)
-			frame_5Hz = true;
-
-		if ((frameCounter % COUNT_1HZ) == 0)
-			frame_1Hz = true;*/
-
 		///////////////////////////////
 		// ========== 【修改3】执行时间也用 micros() ==========
 		executionTime1000Hz = micros() - currentTime;

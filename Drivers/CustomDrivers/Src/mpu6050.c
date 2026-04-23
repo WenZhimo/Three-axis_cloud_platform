@@ -253,7 +253,7 @@ void MPU6050_Get_Physical_Data(float *ax, float *ay, float *az, float *gx, float
 void orientIMU(void)
 {
 	// 原初默认为4状态
-	eepromConfig.imuOrientation = 4;
+	eepromConfig.imuOrientation = 1;
     switch (eepromConfig.imuOrientation)
     {
         case 1: // Dot Front/Left/Top

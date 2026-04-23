@@ -247,7 +247,7 @@ int main(void)
       previous500HzTime = currentTime;
 
       // =============== 【最强时间保护】===============
-      if (deltaTime500Hz < 500 || deltaTime500Hz > 20000)
+      /*if (deltaTime500Hz < 500 || deltaTime500Hz > 20000)
       {
         dt500Hz = 0.002f;
       }
@@ -260,23 +260,29 @@ int main(void)
       if (isnan(dt500Hz) || isinf(dt500Hz))
       {
         dt500Hz = 0.002f;
-      }
+      }*/
+
+      dt500Hz = (float)deltaTime500Hz / 1000000.0f;
 
       MPU6050_Read_And_Process();
 
       sensors.accel500Hz[XAXIS] = ((float)rawAccel[XAXIS].value - accelTCBias[XAXIS]) * ACCEL_SCALE_FACTOR;
       sensors.accel500Hz[YAXIS] = ((float)rawAccel[YAXIS].value - accelTCBias[YAXIS]) * ACCEL_SCALE_FACTOR;
-      sensors.accel500Hz[ZAXIS] = -((float)rawAccel[ZAXIS].value - accelTCBias[ZAXIS]) * ACCEL_SCALE_FACTOR;
+      // 原来是有负号的，但是应该是在MPU6050_Read_And_Process()调整了轴方向，所以去掉符号保证向下加速度，避免反重力
+      sensors.accel500Hz[ZAXIS] = ((float)rawAccel[ZAXIS].value - accelTCBias[ZAXIS]) * ACCEL_SCALE_FACTOR;
 
       sensors.gyro500Hz[ROLL] = ((float)rawGyro[ROLL].value - gyroRTBias[ROLL] - gyroTCBias[ROLL]) * GYRO_SCALE_FACTOR;
       sensors.gyro500Hz[PITCH] = ((float)rawGyro[PITCH].value - gyroRTBias[PITCH] - gyroTCBias[PITCH]) * GYRO_SCALE_FACTOR;
       sensors.gyro500Hz[YAW] = -((float)rawGyro[YAW].value - gyroRTBias[YAW] - gyroTCBias[YAW]) * GYRO_SCALE_FACTOR;
 
-      /*getOrientation(accAngleSmooth, sensors.evvgcCFAttitude500Hz, sensors.accel500Hz, sensors.gyro500Hz, dt500Hz);
-
-      sensors.accel500Hz[ROLL] = firstOrderFilter(sensors.accel500Hz[ROLL], &firstOrderFilters[ACCEL_X_500HZ_LOWPASS]);
-      sensors.accel500Hz[PITCH] = firstOrderFilter(sensors.accel500Hz[PITCH], &firstOrderFilters[ACCEL_Y_500HZ_LOWPASS]);
-      sensors.accel500Hz[ZAXIS] = firstOrderFilter(sensors.accel500Hz[ZAXIS], &firstOrderFilters[ACCEL_Z_500HZ_LOWPASS]);*/
+      // 输出加速度 + 陀螺仪 6个物理量
+     /* printf("ACC: X=%.3f  Y=%.3f  Z=%.3f | GYRO: ROLL=%.4f  PITCH=%.4f  YAW=%.4f\r\n",
+             sensors.accel500Hz[XAXIS],
+             sensors.accel500Hz[YAXIS],
+             sensors.accel500Hz[ZAXIS],
+             sensors.gyro500Hz[ROLL],
+             sensors.gyro500Hz[PITCH],
+             sensors.gyro500Hz[YAW]);*/
 
       MargAHRSupdate(sensors.gyro500Hz[ROLL],
                      sensors.gyro500Hz[PITCH],
@@ -295,7 +301,7 @@ int main(void)
           zeroPIDintegralError();           // 清空这2秒内乱算的积分
           zeroPIDstates();                  // 清空D项微分的毛刺
           eepromConfig.pitchEnabled = true; // 姿态稳定，放开PID控制
-          eepromConfig.rollEnabled = false;
+          eepromConfig.rollEnabled = true;
           eepromConfig.yawEnabled = false;
           printf(">>> AHRS收敛完成，电机使能！\r\n");
         }
@@ -316,36 +322,30 @@ int main(void)
       if (systemReady && eepromConfig.pitchEnabled)
       {
         float pitch_angle_deg = sensors.margAttitude500Hz[PITCH] * 57.29578f;
-        float target_deg      = pointingCmd[PITCH] * 57.29578f;
+        float target_deg      = pointingCmd[PITCH] * 57.29578f;//这个计算感觉有点问题啊
         float error_deg       = target_deg - pitch_angle_deg;
 
-        printf("[PITCH DEBUG] 目标:%.2f | 当前:%.2f | 误差:%.2f | 积分:%.4f | 输出:%.3f\r\n",
+        printf("[PITCH DEBUG] 目标:%.2f | 当前:%.2f | 误差:%.2f | 积分:%.4f | 输出:%.3f | 时间:%f\r\n",
              target_deg,
              pitch_angle_deg,
              error_deg,
              eepromConfig.PID[PITCH_PID].iTerm,
-             pidCmd[PITCH]);
-
-        // 积分警告
-        /*if(fabs(eepromConfig.PID[PITCH_PID].iTerm) > 0.35f)
-        {
-          printf("!!! WARNING: Pitch 积分过高！\r\n");
-        }*/
+             pidCmd[PITCH],dt500Hz);
       }
 
-      if (systemReady && eepromConfig.rollEnabled)
-            {
-              float roll_angle_deg = sensors.margAttitude500Hz[ROLL] * 57.29578f;
-              float target_deg      = pointingCmd[ROLL] * 57.29578f;
-              float error_deg       = target_deg - roll_angle_deg;
+		/*if (systemReady && eepromConfig.rollEnabled)
+		{
+			float roll_angle_deg = sensors.margAttitude500Hz[ROLL] * 57.29578f;
+			float target_deg      = pointingCmd[ROLL] * 57.29578f;
+			float error_deg       = target_deg - roll_angle_deg;
 
-              printf("[ROLL DEBUG] 目标:%.2f | 当前:%.2f | 误差:%.2f | 积分:%.4f | 输出:%.3f\r\n",
-                   target_deg,
-                   roll_angle_deg,
-                   error_deg,
-                   eepromConfig.PID[ROLL_PID].iTerm,
-                   pidCmd[ROLL]);
-            }
+			printf("[ROLL DEBUG] 目标:%.2f | 当前:%.2f | 误差:%.2f | 积分:%.4f | 输出:%.3f\r\n",
+			target_deg,
+			roll_angle_deg,
+			error_deg,
+			eepromConfig.PID[ROLL_PID].iTerm,
+			pidCmd[ROLL]);
+		}*/
     }
     ////////////////////////////////////////////
 

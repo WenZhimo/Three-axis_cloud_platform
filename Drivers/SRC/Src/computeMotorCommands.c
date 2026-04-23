@@ -55,7 +55,7 @@ float mechanical2electricalDegrees[3] = {7.0f, 7.0f, 7.0f};
 float electrical2mechanicalDegrees[3] = {1.0f / 7.0f, 1.0f / 7.0f, 1.0f / 7.0f};
 
 // 横滚 / 俯仰 / 偏航 目标角（弧度）
-float pointingCmd[3] = {0.0f, 0.0f, 0.0f};
+float pointingCmd[3] = {-2.8972f, 0.0f, 0.0f};
 
 float outputRate[3];
 float pidCmd[3];
@@ -150,154 +150,6 @@ void computeMotorCommands(float dt)
         pitchGateOpen = 0;
         rollSettledTime = 0.0f;
     }
-    // ========================= roll =========================
-   /* if (eepromConfig.rollEnabled == true)
-    {
-        float roll_raw_angle = sensors.margAttitude500Hz[ROLL];
-        float roll_angle = ROLL_SENSOR_SIGN * roll_raw_angle;
-
-        rollDiag.targetMechRad = pointingCmd[ROLL];
-        rollDiag.targetSlewMechRad = rollTargetSlew;
-        rollDiag.currentRawMechRad = roll_raw_angle;
-        rollDiag.currentCtrlMechRad = roll_angle;
-        rollDiag.errIfSensorPlusDeg = (pointingCmd[ROLL] - roll_raw_angle) * 57.29578f;
-        rollDiag.errIfSensorMinusDeg = (pointingCmd[ROLL] + roll_raw_angle) * 57.29578f;
-        rollDiag.sensorSign = ROLL_SENSOR_SIGN;
-        rollDiag.statorSign = ROLL_STATOR_SIGN;
-        if (isnan(roll_angle) || isinf(roll_angle))
-        {
-            roll_angle = 0.0f;
-            rollDiag.currentCtrlMechRad = 0.0f;
-        }
-
-        // 横滚轴放开时：目标从当前角度起步，避免开启瞬间抽动
-        if (rollAxisWasEnabled == 0)
-        {
-            rollTargetSlew = roll_angle;
-
-            pidCmdPrev[ROLL] = 0.0f;
-            eepromConfig.PID[ROLL_PID].iTerm = 0.0f;
-            eepromConfig.PID[ROLL_PID].lastDcalcValue = 0.0f;
-            eepromConfig.PID[ROLL_PID].lastDterm = 0.0f;
-            eepromConfig.PID[ROLL_PID].lastLastDterm = 0.0f;
-
-            rollAxisWasEnabled = 1;
-        }
-
-        rollTargetSlew = moveTowardsf(
-            rollTargetSlew,
-            pointingCmd[ROLL],
-            ROLL_TARGET_SLEW_RAD_S * safeDt);
-        rollDiag.targetSlewMechRad = rollTargetSlew;
-
-        {
-            float target_electrical_angle = rollTargetSlew * mechanical2electricalDegrees[ROLL];
-            float current_electrical_angle = roll_angle * mechanical2electricalDegrees[ROLL];
-            float roll_error = target_electrical_angle - current_electrical_angle;
-            uint8_t rollHoldIntegrators = (fabsf(roll_error) > ROLL_I_ENABLE_ERR_RAD);
-
-            rollDiag.targetElecRad = target_electrical_angle;
-            rollDiag.currentElecRad = current_electrical_angle;
-            rollDiag.errElecRad = roll_error;
-            rollDiag.errMechRad = rollTargetSlew - roll_angle;
-            rollDiag.holdI = rollHoldIntegrators;
-
-            if (rollHoldIntegrators)
-            {
-                holdIntegrators = true;
-            }
-
-            {
-                float rollPidRaw = updatePID(
-                    target_electrical_angle,
-                    current_electrical_angle,
-                    safeDt,
-                    rollHoldIntegrators,
-                    &eepromConfig.PID[ROLL_PID]);
-
-                if (isnan(rollPidRaw) || isinf(rollPidRaw))
-                {
-                    rollPidRaw = 0.0f;
-                }
-
-                rollDiag.pidRaw = rollPidRaw;
-                pidCmd[ROLL] = clampf(rollPidRaw, -ROLL_CMD_LIMIT_RAD, ROLL_CMD_LIMIT_RAD);
-                rollDiag.pidClamped = pidCmd[ROLL];
-            }
-
-            {
-                float rollStepLimit = eepromConfig.rateLimit * safeDt;
-                if (rollStepLimit < AXIS_MIN_STEP_LIMIT_RAD)
-                {
-                    rollStepLimit = AXIS_MIN_STEP_LIMIT_RAD;
-                }
-
-                outputRate[ROLL] = pidCmd[ROLL] - pidCmdPrev[ROLL];
-                rollDiag.dPidRaw = outputRate[ROLL];
-                rollDiag.stepLimit = rollStepLimit;
-
-                if (outputRate[ROLL] > rollStepLimit)
-                {
-                    pidCmd[ROLL] = pidCmdPrev[ROLL] + rollStepLimit;
-                }
-                if (outputRate[ROLL] < -rollStepLimit)
-                {
-                    pidCmd[ROLL] = pidCmdPrev[ROLL] - rollStepLimit;
-                }
-            }
-
-            rollDiag.pidApplied = pidCmd[ROLL];
-            pidCmdPrev[ROLL] = pidCmd[ROLL];
-
-            {
-                float stator_electrical_angle = current_electrical_angle + ROLL_STATOR_SIGN * pidCmd[ROLL];
-                PWM_Motor_SetAngle(MOTOR_ROLL, stator_electrical_angle, eepromConfig.rollPower);
-            }
-
-            // 双轴同时启用时：roll 连续稳定一段时间后再放开 pitch
-            if (eepromConfig.pitchEnabled == true && pitchGateOpen == 0)
-            {
-                if (fabsf(roll_error) < ROLL_SETTLE_ERR_RAD && fabsf(pidCmd[ROLL]) < ROLL_SETTLE_CMD_RAD)
-                {
-                    rollSettledTime += safeDt;
-                    if (rollSettledTime >= ROLL_SETTLE_TIME_S)
-                    {
-                        pitchGateOpen = 1;
-                    }
-                }
-                else
-                {
-                    rollSettledTime = 0.0f;
-                }
-            }
-        }
-    }
-    else
-    {
-        rollAxisWasEnabled = 0;
-        pidCmdPrev[ROLL] = 0.0f;
-        pitchGateOpen = 1;
-        rollSettledTime = 0.0f;
-
-        rollDiag.targetMechRad = pointingCmd[ROLL];
-        rollDiag.targetSlewMechRad = 0.0f;
-        rollDiag.currentRawMechRad = sensors.margAttitude500Hz[ROLL];
-        rollDiag.currentCtrlMechRad = ROLL_SENSOR_SIGN * sensors.margAttitude500Hz[ROLL];
-        rollDiag.errMechRad = 0.0f;
-        rollDiag.errElecRad = 0.0f;
-        rollDiag.targetElecRad = 0.0f;
-        rollDiag.currentElecRad = 0.0f;
-        rollDiag.pidRaw = 0.0f;
-        rollDiag.pidClamped = 0.0f;
-        rollDiag.pidApplied = 0.0f;
-        rollDiag.dPidRaw = 0.0f;
-        rollDiag.stepLimit = 0.0f;
-        rollDiag.holdI = 0;
-        rollDiag.errIfSensorPlusDeg = (pointingCmd[ROLL] - sensors.margAttitude500Hz[ROLL]) * 57.29578f;
-        rollDiag.errIfSensorMinusDeg = (pointingCmd[ROLL] + sensors.margAttitude500Hz[ROLL]) * 57.29578f;
-        rollDiag.sensorSign = ROLL_SENSOR_SIGN;
-        rollDiag.statorSign = ROLL_STATOR_SIGN;
-    }*/
 
     // ========================= roll =========================
 	if (eepromConfig.rollEnabled == true)
@@ -354,7 +206,7 @@ void computeMotorCommands(float dt)
 		// 🔥🔥🔥 核心 FOC 修复：定子磁场超前/滞后
 		// 目标磁场角度 = 当前真实位置 + PID要求补偿的偏差量
 		// ==============================================
-		float stator_electrical_angle = current_electrical_angle + pidCmd[ROLL];
+		float stator_electrical_angle = current_electrical_angle - pidCmd[ROLL];
 
 		// 发送给电机驱动 (35.0f 是功率，觉得没力气可以稍微加大，但别超过电机额定发热范围)
 		PWM_Motor_SetAngle(MOTOR_ROLL, stator_electrical_angle, 45.0f);
@@ -433,6 +285,7 @@ void computeMotorCommands(float dt)
 		PWM_Motor_SetAngle(MOTOR_PITCH, stator_electrical_angle, 45.0f);
 
 	}
+
     // ========================= yaw =========================
    /* if (eepromConfig.yawEnabled == true)
     {
