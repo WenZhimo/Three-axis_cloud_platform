@@ -200,18 +200,18 @@ int main(void)
   eepromConfig.PID[YAW_PID].lastLastDterm = 0.0f;
   eepromConfig.PID[YAW_PID].windupGuard = 0.1f;
   // pitch
-  eepromConfig.PID[PITCH_PID].P = 2.5f;
-  eepromConfig.PID[PITCH_PID].I = 0.01f; // 大幅减小，防止爆炸
-  eepromConfig.PID[PITCH_PID].D = 0.1f;
+  eepromConfig.PID[PITCH_PID].P = 0.0f;
+  eepromConfig.PID[PITCH_PID].I = 0.0f; // 大幅减小，防止爆炸
+  eepromConfig.PID[PITCH_PID].D = 0.0f;
   eepromConfig.PID[PITCH_PID].lastDcalcValue = 0.0f;
   eepromConfig.PID[PITCH_PID].lastDterm = 0.0f;
   eepromConfig.PID[PITCH_PID].lastLastDterm = 0.0f;
   eepromConfig.PID[PITCH_PID].windupGuard = 0.5236f;
 
   // roll
-  eepromConfig.PID[ROLL_PID].P = 2.5f; // 跟 Pitch 给一样的值作为起步
-  eepromConfig.PID[ROLL_PID].I = 0.01f;
-  eepromConfig.PID[ROLL_PID].D = 0.1f;
+  eepromConfig.PID[ROLL_PID].P = 0.0f; // 跟 Pitch 给一样的值作为起步
+  eepromConfig.PID[ROLL_PID].I = 0.0f;
+  eepromConfig.PID[ROLL_PID].D = 0.0f;
   eepromConfig.PID[ROLL_PID].lastDcalcValue = 0.0f;
   eepromConfig.PID[ROLL_PID].lastDterm = 0.0f;
   eepromConfig.PID[ROLL_PID].lastLastDterm = 0.0f;
@@ -300,7 +300,7 @@ int main(void)
         {
           zeroPIDintegralError();           // 清空这2秒内乱算的积分
           zeroPIDstates();                  // 清空D项微分的毛刺
-          eepromConfig.pitchEnabled = true; // 姿态稳定，放开PID控制
+          eepromConfig.pitchEnabled = false; // 姿态稳定，放开PID控制
           eepromConfig.rollEnabled = true;
           eepromConfig.yawEnabled = false;
           printf(">>> AHRS收敛完成，电机使能！\r\n");
@@ -319,7 +319,7 @@ int main(void)
       last_print_tick = HAL_GetTick(); // 重置时间戳
 
       // 确保已经度过了开机不稳定的阶段再开始打印数据
-      if (systemReady && eepromConfig.pitchEnabled)
+      /*if (systemReady && eepromConfig.pitchEnabled)
       {
         float pitch_angle_deg = sensors.margAttitude500Hz[PITCH] * 57.29578f;
         float target_deg      = pointingCmd[PITCH] * 57.29578f;//这个计算感觉有点问题啊
@@ -331,9 +331,9 @@ int main(void)
              error_deg,
              eepromConfig.PID[PITCH_PID].iTerm,
              pidCmd[PITCH],dt500Hz);
-      }
+      }*/
 
-		/*if (systemReady && eepromConfig.rollEnabled)
+		if (systemReady && eepromConfig.rollEnabled)
 		{
 			float roll_angle_deg = sensors.margAttitude500Hz[ROLL] * 57.29578f;
 			float target_deg      = pointingCmd[ROLL] * 57.29578f;
@@ -345,7 +345,7 @@ int main(void)
 			error_deg,
 			eepromConfig.PID[ROLL_PID].iTerm,
 			pidCmd[ROLL]);
-		}*/
+		}
     }
     ////////////////////////////////////////////
 

@@ -55,7 +55,7 @@ float mechanical2electricalDegrees[3] = {7.0f, 7.0f, 7.0f};
 float electrical2mechanicalDegrees[3] = {1.0f / 7.0f, 1.0f / 7.0f, 1.0f / 7.0f};
 
 // 横滚 / 俯仰 / 偏航 目标角（弧度）
-float pointingCmd[3] = {-2.8972f, 0.0f, 0.0f};
+float pointingCmd[3] = {-1.4835f, 0.1535f, 0.0f};//
 
 float outputRate[3];
 float pidCmd[3];
@@ -104,14 +104,6 @@ static uint8_t yawAxisWasEnabled = 0;
 static uint8_t pitchGateOpen = 0;
 static float rollSettledTime = 0.0f;
 
-// ====================== 新增：保存上一次的物理电角度 ======================
-static float last_current_electrical_roll = 0.0f;
-static uint8_t first_run_roll = 1;  // 新增：第一次运行标记
-
-static float last_current_electrical_pitch = 0.0f;
-static uint8_t first_run_pitch = 1;  // 新增：第一次运行标记
-// ======================================================================
-
 float autoPan(float motorPos, float setpoint)
 {
     if (motorPos < centerPoint - YAP_DEADBAND)
@@ -138,18 +130,6 @@ float autoPan(float motorPos, float setpoint)
 void computeMotorCommands(float dt)
 {
     holdIntegrators = false;
-
-    // 门控状态初始化//先不改
-    if (eepromConfig.rollEnabled == false || eepromConfig.pitchEnabled == false)
-    {
-        pitchGateOpen = 1;
-        rollSettledTime = 0.0f;
-    }
-    else if (rollAxisWasEnabled == 0)
-    {
-        pitchGateOpen = 0;
-        rollSettledTime = 0.0f;
-    }
 
     // ========================= roll =========================
 	if (eepromConfig.rollEnabled == true)
@@ -231,18 +211,6 @@ void computeMotorCommands(float dt)
 		// 当前物理电角度 (机械角度 * 极对数)
 		float current_electrical_angle = pitch_angle * mechanical2electricalDegrees[PITCH];
 
-		// ====================== 角度差判断 ======================
-		float delta_pitch = fabsf(current_electrical_angle - last_current_electrical_pitch);
-
-		if (!first_run_pitch && delta_pitch < 1.0f)
-		{
-
-		}
-
-		first_run_pitch = 0;  // 第一次运行后关闭标记
-		last_current_electrical_pitch = current_electrical_angle;
-		// ========================================================================
-
 		// 调用 PID 计算补偿量
 		pidCmd[PITCH] = updatePID(
 			target_electrical_angle,
@@ -287,7 +255,7 @@ void computeMotorCommands(float dt)
 	}
 
     // ========================= yaw =========================
-   /* if (eepromConfig.yawEnabled == true)
+    if (eepromConfig.yawEnabled == true)
     {
         float yaw_angle = sensors.margAttitude500Hz[YAW];
         if (isnan(yaw_angle) || isinf(yaw_angle))
@@ -314,7 +282,7 @@ void computeMotorCommands(float dt)
         yawTargetSlew = moveTowardsAnglef(
             yawTargetSlew,
             wrapToPif(pointingCmd[YAW]),
-            YAW_TARGET_SLEW_RAD_S * safeDt);
+            YAW_TARGET_SLEW_RAD_S * dt);
 
         {
             float yaw_error_mech = wrapToPif(yawTargetSlew - yaw_angle);
@@ -331,7 +299,7 @@ void computeMotorCommands(float dt)
             pidCmd[YAW] = updatePID(
                 target_electrical_angle,
                 current_electrical_angle,
-                safeDt,
+                dt,
                 yawHoldIntegrators,
                 &eepromConfig.PID[YAW_PID]);
 
@@ -343,7 +311,7 @@ void computeMotorCommands(float dt)
             pidCmd[YAW] = clampf(pidCmd[YAW], -YAW_CMD_LIMIT_RAD, YAW_CMD_LIMIT_RAD);
 
             {
-                float yawStepLimit = eepromConfig.rateLimit * safeDt;
+                float yawStepLimit = eepromConfig.rateLimit * dt;
                 if (yawStepLimit < AXIS_MIN_STEP_LIMIT_RAD)
                 {
                     yawStepLimit = AXIS_MIN_STEP_LIMIT_RAD;
@@ -372,5 +340,5 @@ void computeMotorCommands(float dt)
     {
         yawAxisWasEnabled = 0;
         pidCmdPrev[YAW] = 0.0f;
-    }*/
+    }
 }
