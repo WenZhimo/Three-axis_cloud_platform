@@ -59,49 +59,6 @@ void calculateAccConfidence(float accMag)
 //----------------------------------------------------------------------------------------------------
 void MargAHRSinit(float ax, float ay, float az, float mx, float my, float mz)
 {
-   /* float initialRoll, initialPitch;
-    float cosRoll, sinRoll, cosPitch, sinPitch;
-    float magX, magY;
-    float initialHdg, cosHeading, sinHeading;
-
-    initialRoll  = atan2(-ay, -az);
-    initialPitch = atan2(ax, -az);
-
-    cosRoll  = cosf(initialRoll);
-    sinRoll  = sinf(initialRoll);
-    cosPitch = cosf(initialPitch);
-    sinPitch = sinf(initialPitch);
-
-    magX = 1.0f;
-    magY = 0.0f;
-
-    initialHdg = atan2f(-magY, magX);
-
-    cosRoll = cosf(initialRoll * 0.5f);
-    sinRoll = sinf(initialRoll * 0.5f);
-
-    cosPitch = cosf(initialPitch * 0.5f);
-    sinPitch = sinf(initialPitch * 0.5f);
-
-    cosHeading = cosf(initialHdg * 0.5f);
-    sinHeading = sinf(initialHdg * 0.5f);
-
-    q0 = cosRoll * cosPitch * cosHeading + sinRoll * sinPitch * sinHeading;
-    q1 = sinRoll * cosPitch * cosHeading - cosRoll * sinPitch * sinHeading;
-    q2 = cosRoll * sinPitch * cosHeading + sinRoll * cosPitch * sinHeading;
-    q3 = cosRoll * cosPitch * sinHeading - sinRoll * sinPitch * cosHeading;
-
-    q0q0 = q0 * q0;
-    q0q1 = q0 * q1;
-    q0q2 = q0 * q2;
-    q0q3 = q0 * q3;
-    q1q1 = q1 * q1;
-    q1q2 = q1 * q2;
-    q1q3 = q1 * q3;
-    q2q2 = q2 * q2;
-    q2q3 = q2 * q3;
-    q3q3 = q3 * q3;*/
-
 	// 加入 Roll 轴的初始角度计算
 	float initialRoll  = atan2f(-ay, -az);
 	float initialPitch = atan2f(ax, -az);
@@ -224,8 +181,13 @@ void MargAHRSupdate(float gx, float gy, float gz,
         if (sinp > 1.0f)  sinp = 1.0f;
         if (sinp < -1.0f) sinp = -1.0f;
 
+        // 原版
         sensors.margAttitude500Hz[PITCH] = -asinf(sinp);
         sensors.margAttitude500Hz[ROLL] = atan2f(2.0f * (q0q1 + q2q3), q0q0 - q1q1 - q2q2 + q3q3);
+
+        // 新
+		//sensors.margAttitude500Hz[ROLL] = -asinf(sinp);
+		//sensors.margAttitude500Hz[PITCH] = atan2f(2.0f * (q0q1 + q2q3), q0q0 - q1q1 - q2q2 + q3q3);
 
         // 最后保护一次
         if (isnan(sensors.margAttitude500Hz[PITCH]))

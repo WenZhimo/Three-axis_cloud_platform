@@ -206,28 +206,23 @@ void MPU6050_Read_And_Process(void) {
     rawMPU6050Temperature.bytes[1] = I2C2_Buffer_Rx[6];
     rawMPU6050Temperature.bytes[0] = I2C2_Buffer_Rx[7];
 
-    // --- 陀螺仪 ---
-    // Buffer[8,9] (物理X) -> 赋给 rawGyro[PITCH]
-    rawGyro[PITCH].bytes[1] = I2C2_Buffer_Rx[8];
-    rawGyro[PITCH].bytes[0] = I2C2_Buffer_Rx[9];
+	// 严格按照物理轴 X, Y, Z 提取，不要在这里擅自映射为 ROLL/PITCH
+	rawGyro[YAXIS].bytes[1] = I2C2_Buffer_Rx[8];
+	rawGyro[YAXIS].bytes[0] = I2C2_Buffer_Rx[9];
 
-    // Buffer[10,11] (物理Y) -> 赋给 rawGyro[ROLL]
-    rawGyro[ROLL].bytes[1] = I2C2_Buffer_Rx[10];
-    rawGyro[ROLL].bytes[0] = I2C2_Buffer_Rx[11];
+	rawGyro[XAXIS].bytes[1] = I2C2_Buffer_Rx[10];
+	rawGyro[XAXIS].bytes[0] = I2C2_Buffer_Rx[11];
 
-    // Buffer[12,13] (物理Z) -> 赋给 rawGyro[YAW]
-    rawGyro[YAW].bytes[1] = I2C2_Buffer_Rx[12];
-    rawGyro[YAW].bytes[0] = I2C2_Buffer_Rx[13];
+	rawGyro[ZAXIS].bytes[1] = I2C2_Buffer_Rx[12];
+	rawGyro[ZAXIS].bytes[0] = I2C2_Buffer_Rx[13];
 
-    // 3. 提取数值到临时 float 数组 (准备矩阵运算)
-    // 顺序对应数组下标 0,1,2 (即 XAXIS, YAXIS, ZAXIS)
-    straightAccelData[XAXIS] = (float)rawAccel[XAXIS].value;
-    straightAccelData[YAXIS] = (float)rawAccel[YAXIS].value;
-    straightAccelData[ZAXIS] = (float)rawAccel[ZAXIS].value;
+	straightAccelData[XAXIS] = (float)rawAccel[XAXIS].value;
+	straightAccelData[YAXIS] = (float)rawAccel[YAXIS].value;
+	straightAccelData[ZAXIS] = (float)rawAccel[ZAXIS].value;
 
-    straightGyroData[ROLL]  = (float)rawGyro[ROLL].value;
-    straightGyroData[PITCH] = (float)rawGyro[PITCH].value;
-    straightGyroData[YAW]   = (float)rawGyro[YAW].value;
+	straightGyroData[XAXIS] = (float)rawGyro[XAXIS].value;
+	straightGyroData[YAXIS] = (float)rawGyro[YAXIS].value;
+	straightGyroData[ZAXIS] = (float)rawGyro[ZAXIS].value;
 
     // 4. 矩阵旋转
     matrixMultiply(3, 3, 1, rotatedAccelData, orientationMatrix, straightAccelData);
@@ -253,7 +248,7 @@ void MPU6050_Get_Physical_Data(float *ax, float *ay, float *az, float *gx, float
 void orientIMU(void)
 {
 	// 原初默认为4状态
-	eepromConfig.imuOrientation = 1;
+	eepromConfig.imuOrientation = 4;
     switch (eepromConfig.imuOrientation)
     {
         case 1: // Dot Front/Left/Top
@@ -351,6 +346,92 @@ void orientIMU(void)
             orientationMatrix[7] =  0;
             orientationMatrix[8] = -1;
             break;
+        case 9: // Custom test: rotate frame +90 deg around X axis
+			orientationMatrix[0] =  1;
+			orientationMatrix[1] =  0;
+			orientationMatrix[2] =  0;
+			orientationMatrix[3] =  0;
+			orientationMatrix[4] =  0;
+			orientationMatrix[5] = -1;
+			orientationMatrix[6] =  0;
+			orientationMatrix[7] =  1;
+			orientationMatrix[8] =  0;
+			break;
+
+		case 10:
+			orientationMatrix[0] =  1;
+			orientationMatrix[1] =  0;
+			orientationMatrix[2] =  0;
+			orientationMatrix[3] =  0;
+			orientationMatrix[4] =  0;
+			orientationMatrix[5] =  1;
+			orientationMatrix[6] =  0;
+			orientationMatrix[7] = -1;
+			orientationMatrix[8] =  0;
+			break;
+
+		case 11: // Custom: 左侧安装，排针朝后
+			// 输出 Gimbal X (前方) = 输入 Sensor Y
+			orientationMatrix[0] =  0;
+			orientationMatrix[1] =  1;
+			orientationMatrix[2] =  0;
+
+			// 输出 Gimbal Y (右方) = 输入 Sensor -Z (Z朝左，所以加负号)
+			orientationMatrix[3] =  0;
+			orientationMatrix[4] =  0;
+			orientationMatrix[5] = -1;
+
+			// 输出 Gimbal Z (下方) = 输入 Sensor -X (X朝上，所以加负号)
+			orientationMatrix[6] = -1;
+			orientationMatrix[7] =  0;
+			orientationMatrix[8] =  0;
+			break;
+
+		case 12: // 左侧安装，排针朝后
+			// 云台 X 轴 (横滚 Roll, 向前) = 传感器 Y 轴
+			orientationMatrix[0] =  0;
+			orientationMatrix[1] =  1;
+			orientationMatrix[2] =  0;
+
+			// 云台 Y 轴 (俯仰 Pitch, 向右) = 传感器 -Z 轴 (因为Z朝左)
+			orientationMatrix[3] =  0;
+			orientationMatrix[4] =  0;
+			orientationMatrix[5] = -1;
+
+			// 云台 Z 轴 (重力方向, 向下) = 传感器 -X 轴 (因为X朝上)
+			orientationMatrix[6] = -1;
+			orientationMatrix[7] =  0;
+			orientationMatrix[8] =  0;
+			break;
+		case 13:
+			// 云台 X 轴 (原固件认为是 Pitch) = 传感器 -Z 轴
+			orientationMatrix[0] =  0;
+			orientationMatrix[1] =  0;
+			orientationMatrix[2] = -1;
+
+			// 云台 Y 轴 (原固件认为是 Roll) = 传感器 -Y 轴
+			orientationMatrix[3] =  0;
+			orientationMatrix[4] = -1;
+			orientationMatrix[5] =  0;
+
+			// 云台 Z 轴 (重力依然向下) = 传感器 -X 轴
+			orientationMatrix[6] = -1;
+			orientationMatrix[7] =  0;
+			orientationMatrix[8] =  0;
+			break;
+
+		case 14:
+			orientationMatrix[0] =  0;
+			orientationMatrix[1] =  1;
+			orientationMatrix[2] =  0;
+
+			orientationMatrix[3] = -1;
+			orientationMatrix[4] =  0;
+			orientationMatrix[5] =  0;
+
+			orientationMatrix[6] =  0;
+			orientationMatrix[7] =  0;
+			orientationMatrix[8] = -1;
 
         default: // Dot Front/Left/Top
             orientationMatrix[0] =  1;

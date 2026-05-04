@@ -1,4 +1,4 @@
 ../Drivers/SRC/Src/MargAHRS.c:34:7:constrain	3
 ../Drivers/SRC/Src/MargAHRS.c:47:6:calculateAccConfidence	1
 ../Drivers/SRC/Src/MargAHRS.c:60:6:MargAHRSinit	1
-../Drivers/SRC/Src/MargAHRS.c:135:6:MargAHRSupdate	34
+../Drivers/SRC/Src/MargAHRS.c:92:6:MargAHRSupdate	34

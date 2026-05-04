@@ -69,7 +69,7 @@ void PWM_Motor_SetAngle(MotorAxis_t axis, float angle_rad, float power_percent)
     if (!isInitialized) return;
 
     // 安全限制：开环功率限制在 40% 以内，防止电机极速发烫
-    if (power_percent > 40.0f) power_percent = 40.0f;
+    if (power_percent > 60.0f) power_percent = 40.0f;
     if (power_percent < 0.0f) power_percent = 0.0f;
 
     // 1. 处理正负角度，归一化到 0 ~ 2π 之间

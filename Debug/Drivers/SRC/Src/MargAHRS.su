@@ -1,4 +1,4 @@
 ../Drivers/SRC/Src/MargAHRS.c:34:7:constrain	24	static
 ../Drivers/SRC/Src/MargAHRS.c:47:6:calculateAccConfidence	24	static
 ../Drivers/SRC/Src/MargAHRS.c:60:6:MargAHRSinit	48	static
-../Drivers/SRC/Src/MargAHRS.c:135:6:MargAHRSupdate	88	static
+../Drivers/SRC/Src/MargAHRS.c:92:6:MargAHRSupdate	88	static

@@ -99,17 +99,17 @@ uint8_t attitude_delta_initialized = 0;
 
 uint32_t micros(void)
 {
-  static uint32_t ms = 0;
+	uint32_t m0 = HAL_GetTick();
+	uint32_t u0 = SysTick->VAL;
+	uint32_t m1 = HAL_GetTick();
+	uint32_t u1 = SysTick->VAL;
+	const uint32_t tms = SysTick->LOAD + 1;
 
-  // 每进入一次 SysTick 中断，ms 就+1
-  // 因为 SysTick 每 1ms 进一次
-  if (SysTick->CTRL & SysTick_CTRL_COUNTFLAG_Msk)
-  {
-    ms++;
-    SysTick->CTRL; // 清除标志
-  }
-
-  return ms * 1000 + (0xFFFFFF - SysTick->VAL) / (SystemCoreClock / 1000000);
+	if (m1 != m0) {
+		return (m1 * 1000 + ((tms - u1) * 1000) / tms);
+	} else {
+		return (m0 * 1000 + ((tms - u0) * 1000) / tms);
+	}
 }
 
 /* USER CODE END 0 */
@@ -200,8 +200,8 @@ int main(void)
   eepromConfig.PID[YAW_PID].lastLastDterm = 0.0f;
   eepromConfig.PID[YAW_PID].windupGuard = 0.1f;
   // pitch
-  eepromConfig.PID[PITCH_PID].P = 0.0f;
-  eepromConfig.PID[PITCH_PID].I = 0.0f; // 大幅减小，防止爆炸
+  eepromConfig.PID[PITCH_PID].P = 0.01f;
+  eepromConfig.PID[PITCH_PID].I = 0.01f; // 大幅减小，防止爆炸
   eepromConfig.PID[PITCH_PID].D = 0.0f;
   eepromConfig.PID[PITCH_PID].lastDcalcValue = 0.0f;
   eepromConfig.PID[PITCH_PID].lastDterm = 0.0f;
@@ -209,8 +209,8 @@ int main(void)
   eepromConfig.PID[PITCH_PID].windupGuard = 0.5236f;
 
   // roll
-  eepromConfig.PID[ROLL_PID].P = 0.0f; // 跟 Pitch 给一样的值作为起步
-  eepromConfig.PID[ROLL_PID].I = 0.0f;
+  eepromConfig.PID[ROLL_PID].P = 0.001f; // 跟 Pitch 给一样的值作为起步
+  eepromConfig.PID[ROLL_PID].I = 0.01f;
   eepromConfig.PID[ROLL_PID].D = 0.0f;
   eepromConfig.PID[ROLL_PID].lastDcalcValue = 0.0f;
   eepromConfig.PID[ROLL_PID].lastDterm = 0.0f;
@@ -246,23 +246,19 @@ int main(void)
       deltaTime500Hz = currentTime - previous500HzTime;
       previous500HzTime = currentTime;
 
-      // =============== 【最强时间保护】===============
-      /*if (deltaTime500Hz < 500 || deltaTime500Hz > 20000)
-      {
-        dt500Hz = 0.002f;
-      }
-      else
-      {
-        dt500Hz = (float)deltaTime500Hz / 1000000.0f;
-      }
+      // 【我帮你补全：正确输出 gx】
+	  MPU6050_Read_And_Process();
+	  float test_sensor_x = (float)rawGyro[XAXIS].value / 16.4f;
+	  printf("TEST 传感器X角速度 = %.2f\n", test_sensor_x);
 
-      // 永远不允许非法时间
-      if (isnan(dt500Hz) || isinf(dt500Hz))
-      {
-        dt500Hz = 0.002f;
-      }*/
+	  /*// 读取陀螺仪原始数据并转换成物理量
+	  float gx = ((float)rawGyro[ROLL].value - gyroRTBias[ROLL] - gyroTCBias[ROLL]) * GYRO_SCALE_FACTOR;
+	  float gy = ((float)rawGyro[PITCH].value - gyroRTBias[PITCH] - gyroTCBias[PITCH]) * GYRO_SCALE_FACTOR;
 
-      dt500Hz = (float)deltaTime500Hz / 1000000.0f;
+	  // 输出 gx（直接用）
+	  printf("gy = %.2f rad/s\r\n", gy);*/
+
+      /*dt500Hz = (float)deltaTime500Hz / 1000000.0f;
 
       MPU6050_Read_And_Process();
 
@@ -273,7 +269,7 @@ int main(void)
 
       sensors.gyro500Hz[ROLL] = ((float)rawGyro[ROLL].value - gyroRTBias[ROLL] - gyroTCBias[ROLL]) * GYRO_SCALE_FACTOR;
       sensors.gyro500Hz[PITCH] = ((float)rawGyro[PITCH].value - gyroRTBias[PITCH] - gyroTCBias[PITCH]) * GYRO_SCALE_FACTOR;
-      sensors.gyro500Hz[YAW] = -((float)rawGyro[YAW].value - gyroRTBias[YAW] - gyroTCBias[YAW]) * GYRO_SCALE_FACTOR;
+      sensors.gyro500Hz[YAW] = ((float)rawGyro[YAW].value - gyroRTBias[YAW] - gyroTCBias[YAW]) * GYRO_SCALE_FACTOR;
 
       // 输出加速度 + 陀螺仪 6个物理量
      /* printf("ACC: X=%.3f  Y=%.3f  Z=%.3f | GYRO: ROLL=%.4f  PITCH=%.4f  YAW=%.4f\r\n",
@@ -284,7 +280,7 @@ int main(void)
              sensors.gyro500Hz[PITCH],
              sensors.gyro500Hz[YAW]);*/
 
-      MargAHRSupdate(sensors.gyro500Hz[ROLL],
+     /* MargAHRSupdate(sensors.gyro500Hz[ROLL],
                      sensors.gyro500Hz[PITCH],
                      sensors.gyro500Hz[YAW],
                      sensors.accel500Hz[XAXIS],
@@ -300,7 +296,7 @@ int main(void)
         {
           zeroPIDintegralError();           // 清空这2秒内乱算的积分
           zeroPIDstates();                  // 清空D项微分的毛刺
-          eepromConfig.pitchEnabled = false; // 姿态稳定，放开PID控制
+          eepromConfig.pitchEnabled = true; // 姿态稳定，放开PID控制
           eepromConfig.rollEnabled = true;
           eepromConfig.yawEnabled = false;
           printf(">>> AHRS收敛完成，电机使能！\r\n");
@@ -331,7 +327,7 @@ int main(void)
              error_deg,
              eepromConfig.PID[PITCH_PID].iTerm,
              pidCmd[PITCH],dt500Hz);
-      }*/
+      }
 
 		if (systemReady && eepromConfig.rollEnabled)
 		{
@@ -345,7 +341,16 @@ int main(void)
 			error_deg,
 			eepromConfig.PID[ROLL_PID].iTerm,
 			pidCmd[ROLL]);
-		}
+		}*/
+
+		/*if (systemReady)
+		{
+			float roll_angle_deg = sensors.margAttitude500Hz[ROLL] * 57.29578f;
+			float pitch_angle_deg = sensors.margAttitude500Hz[PITCH] * 57.29578f;
+
+			printf("ROLL:%.2f | PITCH:%.2f\r\n",
+					roll_angle_deg,pitch_angle_deg);
+		}*/
     }
     ////////////////////////////////////////////
 
