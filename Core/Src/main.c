@@ -185,7 +185,7 @@ int main(void)
     printf(">>> 初始化失败了。\r\n\r\n");
   }
 
-  // 6.初始姿态角
+  // 6.初始姿态角test2
   //  【修改】先关闭电机使能，等AHRS收敛后再开//
   eepromConfig.pitchEnabled = false;
   eepromConfig.rollEnabled = false;
