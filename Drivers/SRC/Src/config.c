@@ -49,8 +49,8 @@ void init_eepromConfig(bool eepromReset)
 
 	        ///////////////////////////////
 
-	        eepromConfig.KpAcc = 5.0f;    // proportional gain governs rate of convergence to accelerometer
-	        eepromConfig.KiAcc = 0.0f;    // integral gain governs rate of convergence of gyroscope biases
+	        eepromConfig.KpAcc = 0.98f;    // proportional gain governs rate of convergence to accelerometer
+	        eepromConfig.KiAcc = 0.02f;    // integral gain governs rate of convergence of gyroscope biases
 	        eepromConfig.KpMag = 5.0f;    // proportional gain governs rate of convergence to magnetometer
 	        eepromConfig.KiMag = 0.0f;    // integral gain governs rate of convergence of gyroscope biases
 

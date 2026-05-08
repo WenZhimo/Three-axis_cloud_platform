@@ -422,16 +422,16 @@ void orientIMU(void)
 
 		case 14:
 			orientationMatrix[0] =  0;
-			orientationMatrix[1] =  1;
+			orientationMatrix[1] =  -1;
 			orientationMatrix[2] =  0;
 
-			orientationMatrix[3] = -1;
+			orientationMatrix[3] =  -1;
 			orientationMatrix[4] =  0;
 			orientationMatrix[5] =  0;
 
 			orientationMatrix[6] =  0;
 			orientationMatrix[7] =  0;
-			orientationMatrix[8] = -1;
+			orientationMatrix[8] =  -1;
 
         default: // Dot Front/Left/Top
             orientationMatrix[0] =  1;
@@ -441,8 +441,8 @@ void orientIMU(void)
             orientationMatrix[4] =  1;
             orientationMatrix[5] =  0;
             orientationMatrix[6] =  0;
-            orientationMatrix[7] =  0;
-            orientationMatrix[8] =  1;
+            orientationMatrix[7] =  1;
+            orientationMatrix[8] =  0;
             break;
     }
 }

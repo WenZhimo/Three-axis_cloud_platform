@@ -55,7 +55,7 @@ float mechanical2electricalDegrees[3] = {7.0f, 7.0f, 7.0f};
 float electrical2mechanicalDegrees[3] = {1.0f / 7.0f, 1.0f / 7.0f, 1.0f / 7.0f};
 
 // 横滚 / 俯仰 / 偏航 目标角（弧度）
-float pointingCmd[3] = {0.0f, 0.0f, 0.0f};
+float pointingCmd[3] = {-1.54f, 0.0f, 0.0f};
 
 float outputRate[3];
 float pidCmd[3];

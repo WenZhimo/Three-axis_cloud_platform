@@ -231,7 +231,6 @@ int main(void)
   // ======= 防止第一圈 dt 爆炸引发 NaN =======
   __HAL_TIM_SET_COUNTER(&htim6, 0);
   previous500HzTime = micros();
-
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -247,9 +246,8 @@ int main(void)
       previous500HzTime = currentTime;
 
       // 【我帮你补全：正确输出 gx】
-	  MPU6050_Read_And_Process();
-	  float test_sensor_x = (float)rawGyro[XAXIS].value / 16.4f;
-	  printf("TEST 传感器X角速度 = %.2f\n", test_sensor_x);
+	  /*float test_sensor_x = (float)rawGyro[XAXIS].value / 16.4f;
+	  printf("TEST 传感器X角速度 = %.2f\n", test_sensor_x);*/
 
 	  /*// 读取陀螺仪原始数据并转换成物理量
 	  float gx = ((float)rawGyro[ROLL].value - gyroRTBias[ROLL] - gyroTCBias[ROLL]) * GYRO_SCALE_FACTOR;
@@ -258,15 +256,14 @@ int main(void)
 	  // 输出 gx（直接用）
 	  printf("gy = %.2f rad/s\r\n", gy);*/
 
-      /*dt500Hz = (float)deltaTime500Hz / 1000000.0f;
+      dt500Hz = (float)deltaTime500Hz / 1000000.0f;
 
       MPU6050_Read_And_Process();
 
       sensors.accel500Hz[XAXIS] = ((float)rawAccel[XAXIS].value - accelTCBias[XAXIS]) * ACCEL_SCALE_FACTOR;
       sensors.accel500Hz[YAXIS] = ((float)rawAccel[YAXIS].value - accelTCBias[YAXIS]) * ACCEL_SCALE_FACTOR;
       // 原来是有负号的，但是应该是在MPU6050_Read_And_Process()调整了轴方向，所以去掉符号保证向下加速度，避免反重力
-      sensors.accel500Hz[ZAXIS] = ((float)rawAccel[ZAXIS].value - accelTCBias[ZAXIS]) * ACCEL_SCALE_FACTOR;
-
+      sensors.accel500Hz[ZAXIS] = ((float)rawAccel[ZAXIS].value - accelTCBias[ZAXIS]) * GYRO_SCALE_FACTOR;
       sensors.gyro500Hz[ROLL] = ((float)rawGyro[ROLL].value - gyroRTBias[ROLL] - gyroTCBias[ROLL]) * GYRO_SCALE_FACTOR;
       sensors.gyro500Hz[PITCH] = ((float)rawGyro[PITCH].value - gyroRTBias[PITCH] - gyroTCBias[PITCH]) * GYRO_SCALE_FACTOR;
       sensors.gyro500Hz[YAW] = ((float)rawGyro[YAW].value - gyroRTBias[YAW] - gyroTCBias[YAW]) * GYRO_SCALE_FACTOR;
@@ -280,7 +277,7 @@ int main(void)
              sensors.gyro500Hz[PITCH],
              sensors.gyro500Hz[YAW]);*/
 
-     /* MargAHRSupdate(sensors.gyro500Hz[ROLL],
+     MargAHRSupdate(sensors.gyro500Hz[ROLL],
                      sensors.gyro500Hz[PITCH],
                      sensors.gyro500Hz[YAW],
                      sensors.accel500Hz[XAXIS],
@@ -296,15 +293,16 @@ int main(void)
         {
           zeroPIDintegralError();           // 清空这2秒内乱算的积分
           zeroPIDstates();                  // 清空D项微分的毛刺
-          eepromConfig.pitchEnabled = true; // 姿态稳定，放开PID控制
+          eepromConfig.pitchEnabled = false; // 姿态稳定，放开PID控制
           eepromConfig.rollEnabled = true;
           eepromConfig.yawEnabled = false;
           printf(">>> AHRS收敛完成，电机使能！\r\n");
         }
       }
 
+      // 先不要补偿影响
       computeMotorCommands(dt500Hz);
-
+      // PWM_Motor_TestAllAngles();
       // printf("%f\r\n",dt500Hz);
 
       executionTime500Hz = micros() - currentTime;
@@ -343,14 +341,30 @@ int main(void)
 			pidCmd[ROLL]);
 		}*/
 
-		/*if (systemReady)
+		if (systemReady)
 		{
-			float roll_angle_deg = sensors.margAttitude500Hz[ROLL] * 57.29578f;
+			/*float roll_angle_deg = sensors.margAttitude500Hz[ROLL] * 57.29578f;
 			float pitch_angle_deg = sensors.margAttitude500Hz[PITCH] * 57.29578f;
 
 			printf("ROLL:%.2f | PITCH:%.2f\r\n",
-					roll_angle_deg,pitch_angle_deg);
-		}*/
+					roll_angle_deg,pitch_angle_deg);*/
+
+			printf("%.2f,%.2f,%.2f\r\n",
+			       sensors.margAttitude500Hz[ROLL],
+				   sensors.margAttitude500Hz[PITCH],
+				   0.0f);
+
+			/*printf("%.2f,%.2f,%.2f,%.2f\r\n",
+						       q0,
+							   q1,
+							   q2,
+							   q3);*/
+
+			/*printf("X=%.3f,Y=%.3f,Z=%.3f\r\n",
+			             sensors.gyro500Hz[ROLL],
+			             sensors.gyro500Hz[PITCH],
+			             sensors.gyro500Hz[YAW]);*/
+		}
     }
     ////////////////////////////////////////////
 

@@ -4,6 +4,17 @@
 static int16_t sinTable[SIN_TABLE_SIZE];
 static uint8_t isInitialized = 0;
 
+// --- 新增：在这里定义目标角度和运动参数 ---
+const float POLE_PAIRS = 7.0f;         // 你的电机极对数
+float target_deg_yaw = 90.0f;          // 你想要转到的目标机械角度 (比如 90 度)
+
+// 计算目标电气角度 (弧度)
+float target_rad;
+
+float current_rad = 0.0f;              // 当前实时角度，从 0 开始
+float step_speed_1 = 0.02f;              // 步进速度 (数值越小，转得越慢越柔和)
+float hold_power = 30.0f;              // 锁死时的功率 (20% 足够，太大容易发热发烫)
+
 /**
  * @brief 内部辅助函数：生成正弦查表
  */
@@ -137,56 +148,28 @@ void PWM_Motor_SetAngle(MotorAxis_t axis, float angle_rad, float power_percent)
  */
 void PWM_Motor_TestAllAngles(void)
 {
-    if (!isInitialized) return;
+	target_rad = (target_deg_yaw * POLE_PAIRS * M_PI) / 180.0f;
 
-    static uint32_t start_tick = 0;
-    if (start_tick == 0) start_tick = HAL_GetTick(); // 记录起始时间
+	if (current_rad < target_rad)
+	{
+		current_rad += step_speed_1; // 正向转动
+		// 防止稍微超过目标值，进行限幅
+		if (current_rad > target_rad) current_rad = target_rad;
+	}
+	else if (current_rad > target_rad)
+	{
+		current_rad -= step_speed_1; // 如果目标角度是负数，或者要往回转
+		// 防止超过目标值
+		if (current_rad < target_rad) current_rad = target_rad;
+	}
 
-    uint32_t current_tick = HAL_GetTick();
+	// 2. 将当前角度持续下发给底层驱动
+	// 当 current_rad == target_rad 时，步进逻辑停止，这里就会一直输出固定的角度，形成“锁死”效果
+	PWM_Motor_SetAngle(MOTOR_YAW,  0.0f, 0.0f);
 
-    // 将运行时间转换为秒，用于正弦函数计算
-    float time_sec = (float)(current_tick - start_tick) / 1000.0f;
-
-    /* ================= 参数设置区 ================= */
-
-    // 1. 电机极对数 (Pole Pairs)
-    // 根据你的电机型号修改，通常云台电机是 7 对极或 11 对极。
-    // 这决定了机械角度到电气角度的转换比例。
-    const float POLE_PAIRS = 7.0f;
-
-    // 2. 设定的机械摆动角度 (度)
-    float target_deg_roll  = 30.0f;  // Roll 轴摆动 ±30度
-    float target_deg_pitch = 30.0f;  // Pitch 轴摆动 ±20度
-    float target_deg_yaw   = 180.0f;  // Yaw 轴摆动 ±45度
-
-    // 3. 摆动频率 (Hz) - 决定摆动快慢
-    float freq_roll  = 0.5f;   // 0.5Hz = 2秒一个来回
-    float freq_pitch = 0.8f;   // 0.8Hz = 1.25秒一个来回
-    float freq_yaw   = 0.3f;   // 0.3Hz = 约3.3秒一个来回
-
-    // 4. 限制功率 (0~100)
-    // 开环通电极易发热，测试时强烈建议保持在 20% 左右！
-    float power = 20.0f;
-
-    /* ============================================== */
-
-    // --- 计算电气角度幅值 (弧度) ---
-    // 公式：电气弧度 = (机械角度 * 极对数 * π) / 180
-    float amp_rad_roll  = (target_deg_roll * POLE_PAIRS * M_PI) / 180.0f;
-    float amp_rad_pitch = (target_deg_pitch * POLE_PAIRS * M_PI) / 180.0f;
-    float amp_rad_yaw   = (target_deg_yaw * POLE_PAIRS * M_PI) / 180.0f;
-
-    // --- 生成实时摆动角度 ---
-    // 利用 sinf 函数产生平滑的 -1 到 +1 波动，乘以幅值即可得到目标弧度
-    float angle_roll  = amp_rad_roll * sinf(2.0f * M_PI * freq_roll * time_sec);
-    float angle_pitch = amp_rad_pitch * sinf(2.0f * M_PI * freq_pitch * time_sec);
-    float angle_yaw   = amp_rad_yaw * sinf(2.0f * M_PI * freq_yaw * time_sec);
-
-    // --- 输出给电机驱动底层 ---
-    // 注意：SetAngle 内部已经处理了负数角度的反转逻辑
-    PWM_Motor_SetAngle(MOTOR_ROLL, angle_roll, power);
-    PWM_Motor_SetAngle(MOTOR_PITCH, angle_pitch, power);
-    PWM_Motor_SetAngle(MOTOR_YAW, angle_yaw, power);
+	// 其他两个轴不通电
+	PWM_Motor_SetAngle(MOTOR_PITCH, 0.0f, 0.0f);
+	PWM_Motor_SetAngle(MOTOR_ROLL, current_rad,hold_power);
 }
 
 /**

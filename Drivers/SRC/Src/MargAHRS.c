@@ -8,6 +8,9 @@
 
 #include "MargAHRS.h"
 
+#define PITCH_OUTPUT_LIMIT_RAD (85.0f * D2R)
+#define GIMBAL_LOCK_COS_THRESH (0.08715574f) // cos(85deg)
+
 //----------------------------------------------------------------------------------------------------
 // 全局变量定义
 float exAcc    = 0.0f, eyAcc    = 0.0f, ezAcc    = 0.0f;
@@ -42,6 +45,21 @@ float constrain(float input, float minValue, float maxValue)
 }
 
 #define HardFilter(O,N)  ((O)*0.9f+(N)*0.1f)
+
+static float wrapToPif(float angle)
+{
+    while (angle > PI)
+    {
+        angle -= TWO_PI;
+    }
+
+    while (angle < -PI)
+    {
+        angle += TWO_PI;
+    }
+
+    return angle;
+}
 
 //----------------------------------------------------------------------------------------------------
 void calculateAccConfidence(float accMag)
@@ -85,7 +103,6 @@ void MargAHRSinit(float ax, float ay, float az, float mx, float my, float mz)
 	q2q2 = q2 * q2;
 	q2q3 = q2 * q3;
 	q3q3 = q3 * q3;
-
 }
 
 //----------------------------------------------------------------------------------------------------
@@ -176,18 +193,57 @@ void MargAHRSupdate(float gx, float gy, float gz,
         q2q3 = q2 * q3;
         q3q3 = q3 * q3;
 
-        // 姿态角安全输出
-        float sinp = 2.0f * (q1q3 - q0q2);
-        if (sinp > 1.0f)  sinp = 1.0f;
-        if (sinp < -1.0f) sinp = -1.0f;
+        // Quaternion -> Euler output with singular-zone protection.
+        {
+            static uint8_t eulerInitialized = 0;
+            static float rollContinuous = 0.0f;
+            static float yawContinuous = 0.0f;
 
-        // 原版
-        sensors.margAttitude500Hz[PITCH] = -asinf(sinp);
-        sensors.margAttitude500Hz[ROLL] = atan2f(2.0f * (q0q1 + q2q3), q0q0 - q1q1 - q2q2 + q3q3);
+            float sinp = 2.0f * (q1q3 - q0q2);
+            float pitch;
+            float rollRaw;
+            float yawRaw;
 
-        // 新
-		//sensors.margAttitude500Hz[ROLL] = -asinf(sinp);
-		//sensors.margAttitude500Hz[PITCH] = atan2f(2.0f * (q0q1 + q2q3), q0q0 - q1q1 - q2q2 + q3q3);
+            if (sinp > 1.0f)
+            {
+                sinp = 1.0f;
+            }
+            if (sinp < -1.0f)
+            {
+                sinp = -1.0f;
+            }
+
+            pitch = -asinf(sinp);
+            pitch = constrain(pitch, -PITCH_OUTPUT_LIMIT_RAD, PITCH_OUTPUT_LIMIT_RAD);
+
+            rollRaw = atan2f(
+                2.0f * (q0q1 + q2q3),
+                q0q0 - q1q1 - q2q2 + q3q3);
+            yawRaw = atan2f(
+                2.0f * (q0q3 + q1q2),
+                q0q0 + q1q1 - q2q2 - q3q3);
+
+            if (eulerInitialized == 0)
+            {
+                rollContinuous = rollRaw;
+                yawContinuous = yawRaw;
+                eulerInitialized = 1;
+            }
+            else
+            {
+                // Roll becomes non-unique near pitch ~= +/-90deg.
+                if (fabsf(cosf(pitch)) >= GIMBAL_LOCK_COS_THRESH)
+                {
+                    rollContinuous += wrapToPif(rollRaw - rollContinuous);
+                }
+
+                yawContinuous += wrapToPif(yawRaw - yawContinuous);
+            }
+
+            sensors.margAttitude500Hz[ROLL] = wrapToPif(rollContinuous);
+            sensors.margAttitude500Hz[PITCH] = pitch;
+            sensors.margAttitude500Hz[YAW] = wrapToPif(yawContinuous);
+        }
 
         // 最后保护一次
         if (isnan(sensors.margAttitude500Hz[PITCH]))
@@ -198,5 +254,10 @@ void MargAHRSupdate(float gx, float gy, float gz,
         {
         	sensors.margAttitude500Hz[ROLL]  = 0.0f;
        	}
+        if (isnan(sensors.margAttitude500Hz[YAW]))
+        {
+            sensors.margAttitude500Hz[YAW] = 0.0f;
+        }
+
     }
 }
