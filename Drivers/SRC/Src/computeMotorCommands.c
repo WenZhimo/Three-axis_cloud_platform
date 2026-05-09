@@ -54,8 +54,8 @@ static float moveTowardsAnglef(float current, float target, float maxStep)
 float mechanical2electricalDegrees[3] = {7.0f, 7.0f, 7.0f};
 float electrical2mechanicalDegrees[3] = {1.0f / 7.0f, 1.0f / 7.0f, 1.0f / 7.0f};
 
-// 横滚 / 俯仰 / 偏航 目标角（弧度）
-float pointingCmd[3] = {-1.54f, 0.0f, 0.0f};
+// 横滚 / 俯仰 / 偏航 目标角（弧度）//现在是俯仰 / 横滚 / 偏航
+float pointingCmd[3] = {0.0f, 0.0f,0.0f};// 0.07f, -2.35f,0.0f
 
 float outputRate[3];
 float pidCmd[3];
@@ -132,15 +132,15 @@ void computeMotorCommands(float dt)
     holdIntegrators = false;
 
     // ========================= roll =========================
-	if (eepromConfig.rollEnabled == true)
+	/*if (eepromConfig.rollEnabled == true)
     {
         float safeDt = dt;
         if (safeDt > 0.01f || safeDt < 0.0001f || isnan(safeDt) || isinf(safeDt))
         {
             safeDt = 0.002f;
         }
-
-        float roll_angle = ROLL_SENSOR_SIGN * sensors.margAttitude500Hz[ROLL];
+        // 这里原本有个负号
+        float roll_angle = sensors.margAttitude500Hz[ROLL];
         if (isnan(roll_angle) || isinf(roll_angle))
         {
             roll_angle = 0.0f;
@@ -211,7 +211,7 @@ void computeMotorCommands(float dt)
 
             {
                 float stator_electrical_angle = current_electrical_angle + ROLL_STATOR_SIGN * pidCmd[ROLL];
-                PWM_Motor_SetAngle(MOTOR_ROLL, stator_electrical_angle, 25.0f);
+                PWM_Motor_SetAngle(MOTOR_PITCH, stator_electrical_angle, 25.0f);
             }
         }
     }
@@ -219,7 +219,69 @@ void computeMotorCommands(float dt)
     {
         rollAxisWasEnabled = 0;
         pidCmdPrev[ROLL] = 0.0f;
-    }
+    }*/
+
+	// ========================= roll =========================
+	    if (eepromConfig.rollEnabled == true)
+		{
+			// =============== 【角度防NaN】===============
+			float roll_angle = sensors.margAttitude500Hz[ROLL];
+
+			if (isnan(roll_angle) || isinf(roll_angle))
+			{
+				roll_angle = 0.0f;
+			}
+
+			// ==========================================
+			// 🔥 提取电角度计算：方便复用
+			// ==========================================
+			// 目标电角度 (通常 pointingCmd 是 0)
+			float target_electrical_angle = pointingCmd[ROLL] * mechanical2electricalDegrees[ROLL];
+			// 当前物理电角度 (机械角度 * 极对数)
+			float current_electrical_angle = roll_angle * mechanical2electricalDegrees[ROLL];
+
+			// 调用 PID 计算补偿量
+			pidCmd[ROLL] = updatePID(
+				target_electrical_angle,
+				current_electrical_angle,
+				dt,
+				holdIntegrators,
+				&eepromConfig.PID[ROLL_PID]
+			);
+
+			// =============== PID输出防NaN ===============
+			if (isnan(pidCmd[ROLL]) || isinf(pidCmd[ROLL]))
+			{
+				pidCmd[ROLL] = 0.0f;
+			}
+
+			// ==========================================
+			// 防止 PID 没调好时，输出过大的补偿角导致电机暴力抽搐
+			// ==========================================
+			if (pidCmd[ROLL] >  0.5f) pidCmd[ROLL] =  0.5f;
+			if (pidCmd[ROLL] < -0.5f) pidCmd[ROLL] = -0.5f;
+
+			// =============== 速率限制 (防抖) ===============
+			outputRate[ROLL] = pidCmd[ROLL] - pidCmdPrev[ROLL];
+
+			if (outputRate[ROLL] > eepromConfig.rateLimit)
+				pidCmd[ROLL] = pidCmdPrev[ROLL] + eepromConfig.rateLimit;
+
+			if (outputRate[ROLL] < -eepromConfig.rateLimit)
+				pidCmd[ROLL] = pidCmdPrev[ROLL] - eepromConfig.rateLimit;
+
+			pidCmdPrev[ROLL] = pidCmd[ROLL];
+
+			// ==============================================
+			// 🔥🔥🔥 核心 FOC 修复：定子磁场超前/滞后
+			// 目标磁场角度 = 当前真实位置 + PID要求补偿的偏差量
+			// ==============================================
+			float stator_electrical_angle = current_electrical_angle + pidCmd[ROLL];
+
+			// 发送给电机驱动 (35.0f 是功率，觉得没力气可以稍微加大，但别超过电机额定发热范围)
+			PWM_Motor_SetAngle(MOTOR_PITCH, stator_electrical_angle, 45.0f);//调roll的时候先把pitch锁住不动
+
+		}
 
     // ========================= pitch =========================
     if (eepromConfig.pitchEnabled == true)
@@ -279,7 +341,7 @@ void computeMotorCommands(float dt)
 		float stator_electrical_angle = current_electrical_angle + pidCmd[PITCH];
 
 		// 发送给电机驱动 (35.0f 是功率，觉得没力气可以稍微加大，但别超过电机额定发热范围)
-		PWM_Motor_SetAngle(MOTOR_PITCH, stator_electrical_angle, 45.0f);//调roll的时候先把pitch锁住不动
+		PWM_Motor_SetAngle(MOTOR_ROLL, stator_electrical_angle, 45.0f);//调roll的时候先把pitch锁住不动
 
 	}
 

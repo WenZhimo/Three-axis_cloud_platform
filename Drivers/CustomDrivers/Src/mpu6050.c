@@ -207,11 +207,11 @@ void MPU6050_Read_And_Process(void) {
     rawMPU6050Temperature.bytes[0] = I2C2_Buffer_Rx[7];
 
 	// 严格按照物理轴 X, Y, Z 提取，不要在这里擅自映射为 ROLL/PITCH
-	rawGyro[YAXIS].bytes[1] = I2C2_Buffer_Rx[8];
-	rawGyro[YAXIS].bytes[0] = I2C2_Buffer_Rx[9];
+	rawGyro[XAXIS].bytes[1] = I2C2_Buffer_Rx[8];
+	rawGyro[XAXIS].bytes[0] = I2C2_Buffer_Rx[9];
 
-	rawGyro[XAXIS].bytes[1] = I2C2_Buffer_Rx[10];
-	rawGyro[XAXIS].bytes[0] = I2C2_Buffer_Rx[11];
+	rawGyro[YAXIS].bytes[1] = I2C2_Buffer_Rx[10];
+	rawGyro[YAXIS].bytes[0] = I2C2_Buffer_Rx[11];
 
 	rawGyro[ZAXIS].bytes[1] = I2C2_Buffer_Rx[12];
 	rawGyro[ZAXIS].bytes[0] = I2C2_Buffer_Rx[13];
@@ -248,7 +248,7 @@ void MPU6050_Get_Physical_Data(float *ax, float *ay, float *az, float *gx, float
 void orientIMU(void)
 {
 	// 原初默认为4状态
-	eepromConfig.imuOrientation = 4;
+	eepromConfig.imuOrientation = 10;
     switch (eepromConfig.imuOrientation)
     {
         case 1: // Dot Front/Left/Top
@@ -422,16 +422,16 @@ void orientIMU(void)
 
 		case 14:
 			orientationMatrix[0] =  0;
-			orientationMatrix[1] =  -1;
-			orientationMatrix[2] =  0;
+			orientationMatrix[1] =  0;
+			orientationMatrix[2] =  -1;
 
-			orientationMatrix[3] =  -1;
-			orientationMatrix[4] =  0;
+			orientationMatrix[3] =  0;
+			orientationMatrix[4] =  -1;
 			orientationMatrix[5] =  0;
 
-			orientationMatrix[6] =  0;
+			orientationMatrix[6] =  -1;
 			orientationMatrix[7] =  0;
-			orientationMatrix[8] =  -1;
+			orientationMatrix[8] =  0;
 
         default: // Dot Front/Left/Top
             orientationMatrix[0] =  1;

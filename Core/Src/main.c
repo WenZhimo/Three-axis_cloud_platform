@@ -270,7 +270,7 @@ int main(void)
       sensors.accel500Hz[XAXIS] = ((float)rawAccel[XAXIS].value - accelTCBias[XAXIS]) * ACCEL_SCALE_FACTOR;
       sensors.accel500Hz[YAXIS] = ((float)rawAccel[YAXIS].value - accelTCBias[YAXIS]) * ACCEL_SCALE_FACTOR;
       // 原来是有负号的，但是应该是在MPU6050_Read_And_Process()调整了轴方向，所以去掉符号保证向下加速度，避免反重力
-      sensors.accel500Hz[ZAXIS] = ((float)rawAccel[ZAXIS].value - accelTCBias[ZAXIS]) * GYRO_SCALE_FACTOR;
+      sensors.accel500Hz[ZAXIS] = ((float)rawAccel[ZAXIS].value - accelTCBias[ZAXIS]) * ACCEL_SCALE_FACTOR;
       sensors.gyro500Hz[ROLL] = ((float)rawGyro[ROLL].value - gyroRTBias[ROLL] - gyroTCBias[ROLL]) * GYRO_SCALE_FACTOR;
       sensors.gyro500Hz[PITCH] = ((float)rawGyro[PITCH].value - gyroRTBias[PITCH] - gyroTCBias[PITCH]) * GYRO_SCALE_FACTOR;
       sensors.gyro500Hz[YAW] = ((float)rawGyro[YAW].value - gyroRTBias[YAW] - gyroTCBias[YAW]) * GYRO_SCALE_FACTOR;
@@ -285,7 +285,7 @@ int main(void)
              sensors.gyro500Hz[YAW]);*/
 
       // [TIMING TEST] 测量“上一次 computeMotorCommands() 开始 -> 本次 MargAHRSupdate() 开始”的耗时
-      if (dbg_has_compute_stamp)
+      /*if (dbg_has_compute_stamp)
       {
         uint32_t dbg_marg_start_us = micros();
         uint32_t dbg_compute_to_next_marg_us = dbg_marg_start_us - dbg_compute_start_us;
@@ -301,7 +301,7 @@ int main(void)
                  dbg_compute_to_next_marg_ms,
                  dbg_dt500Hz_ms);
         }
-      }
+      }*/
 
       MargAHRSupdate(sensors.gyro500Hz[ROLL],
                      sensors.gyro500Hz[PITCH],
@@ -378,10 +378,10 @@ int main(void)
 			printf("ROLL:%.2f | PITCH:%.2f\r\n",
 					roll_angle_deg,pitch_angle_deg);*/
 
-			/*printf("%.2f,%.2f,%.2f\r\n",
+			printf("%.2f,%.2f,%.2f\r\n",
 			       sensors.margAttitude500Hz[ROLL],
 				   sensors.margAttitude500Hz[PITCH],
-				   0.0f);*/
+				   0.0f);
 			/*printf("%.2f,%.2f,%.2f,%.2f\r\n",
 						       q0,
 							   q1,
