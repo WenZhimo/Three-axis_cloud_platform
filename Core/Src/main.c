@@ -78,6 +78,13 @@ uint32_t deltaTime500Hz, previous500HzTime, executionTime500Hz;
 
 float dt500Hz;
 
+// [TIMING TEST] 记录 computeMotorCommands() 起点时间戳（us）
+uint32_t dbg_compute_start_us = 0;
+// [TIMING TEST] 标记是否已有有效的 compute 起点时间戳
+uint8_t dbg_has_compute_stamp = 0;
+// [TIMING TEST] 打印分频计数，避免 500Hz 下串口刷屏
+uint16_t dbg_timing_print_div = 0;
+
 uint32_t loopStartTime;
 
 // 给sysytemReady转换的全局变量
@@ -185,7 +192,7 @@ int main(void)
     printf(">>> 初始化失败了。\r\n\r\n");
   }
 
-  // 6.初始姿态角test2
+  // 6.初始姿态角
   //  【修改】先关闭电机使能，等AHRS收敛后再开//
   eepromConfig.pitchEnabled = false;
   eepromConfig.rollEnabled = false;
@@ -277,7 +284,26 @@ int main(void)
              sensors.gyro500Hz[PITCH],
              sensors.gyro500Hz[YAW]);*/
 
-     MargAHRSupdate(sensors.gyro500Hz[ROLL],
+      // [TIMING TEST] 测量“上一次 computeMotorCommands() 开始 -> 本次 MargAHRSupdate() 开始”的耗时
+      if (dbg_has_compute_stamp)
+      {
+        uint32_t dbg_marg_start_us = micros();
+        uint32_t dbg_compute_to_next_marg_us = dbg_marg_start_us - dbg_compute_start_us;
+        float dbg_compute_to_next_marg_ms = (float)dbg_compute_to_next_marg_us * 0.001f;
+        float dbg_dt500Hz_ms = dt500Hz * 1000.0f;
+
+        dbg_timing_print_div++;
+        if (dbg_timing_print_div >= 50) // 500Hz 下约每 100ms 打印一次
+        {
+          dbg_timing_print_div = 0;
+          // [TIMING TEST] 两列都以 ms 输出：compute->nextMarg(ms), dt500Hz(ms)
+          printf("%.3f,%.3f\r\n",
+                 dbg_compute_to_next_marg_ms,
+                 dbg_dt500Hz_ms);
+        }
+      }
+
+      MargAHRSupdate(sensors.gyro500Hz[ROLL],
                      sensors.gyro500Hz[PITCH],
                      sensors.gyro500Hz[YAW],
                      sensors.accel500Hz[XAXIS],
@@ -301,6 +327,9 @@ int main(void)
       }
 
       // 先不要补偿影响
+      // [TIMING TEST] 记录本次 computeMotorCommands() 开始时间，供下一轮 MargAHRSupdate() 统计耗时
+      dbg_compute_start_us = micros();
+      dbg_has_compute_stamp = 1;
       computeMotorCommands(dt500Hz);
       // PWM_Motor_TestAllAngles();
       // printf("%f\r\n",dt500Hz);
@@ -349,11 +378,10 @@ int main(void)
 			printf("ROLL:%.2f | PITCH:%.2f\r\n",
 					roll_angle_deg,pitch_angle_deg);*/
 
-			printf("%.2f,%.2f,%.2f\r\n",
+			/*printf("%.2f,%.2f,%.2f\r\n",
 			       sensors.margAttitude500Hz[ROLL],
 				   sensors.margAttitude500Hz[PITCH],
-				   0.0f);
-
+				   0.0f);*/
 			/*printf("%.2f,%.2f,%.2f,%.2f\r\n",
 						       q0,
 							   q1,
