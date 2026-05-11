@@ -209,8 +209,8 @@ float updatePID(float command,
         // PITCH 轴额外更严格限幅（防止爆炸）
         if (PIDparameters == &eepromConfig.PID[PITCH_PID])
         {
-            if (temp_iTerm >  0.4f) temp_iTerm =  0.4f;
-            if (temp_iTerm < -0.4f) temp_iTerm = -0.4f;
+            if (temp_iTerm >  3.14f) temp_iTerm =  3.14f;
+            if (temp_iTerm < -3.14f) temp_iTerm = -3.14f;
         }
 
         PIDparameters->iTerm = temp_iTerm;

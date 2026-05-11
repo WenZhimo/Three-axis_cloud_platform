@@ -76,7 +76,7 @@ float step_speed = 0.0f;
 
 // 横滚轴参数（与 pitch 同结构）
 #define ROLL_SENSOR_SIGN (-1.0f) // 若横滚反馈方向相反，改为 +1.0f
-#define ROLL_STATOR_SIGN (-1.0f) // 若校正方向相反，改为 +1.0f
+#define ROLL_STATOR_SIGN (1.0f) // 若校正方向相反，改为 +1.0f
 #define ROLL_CMD_LIMIT_RAD (0.30f)
 #define ROLL_I_ENABLE_ERR_RAD (1.20f)  // 误差超过该电角值时冻结积分
 #define ROLL_TARGET_SLEW_RAD_S (0.90f) // 机械目标角最大斜率（rad/s）
@@ -140,7 +140,7 @@ void computeMotorCommands(float dt)
             safeDt = 0.002f;
         }
         // 这里原本有个负号
-        float roll_angle = sensors.margAttitude500Hz[ROLL];
+        float roll_angle = ROLL_SENSOR_SIGN * sensors.margAttitude500Hz[ROLL];
         if (isnan(roll_angle) || isinf(roll_angle))
         {
             roll_angle = 0.0f;
@@ -222,7 +222,7 @@ void computeMotorCommands(float dt)
     }*/
 
 	// ========================= roll =========================
-	    if (eepromConfig.rollEnabled == true)
+	   if (eepromConfig.rollEnabled == true)
 		{
 			// =============== 【角度防NaN】===============
 			float roll_angle = sensors.margAttitude500Hz[ROLL];
@@ -232,13 +232,15 @@ void computeMotorCommands(float dt)
 				roll_angle = 0.0f;
 			}
 
-			// ==========================================
-			// 🔥 提取电角度计算：方便复用
-			// ==========================================
-			// 目标电角度 (通常 pointingCmd 是 0)
-			float target_electrical_angle = pointingCmd[ROLL] * mechanical2electricalDegrees[ROLL];
-			// 当前物理电角度 (机械角度 * 极对数)
+			// 2. 🚨 先算机械误差，并利用 wrapToPif 强制限制在 ±180 度以内！
+			float error_mech = wrapToPif(pointingCmd[ROLL] - roll_angle);
+
+			// 3. 当前绝对电角度
 			float current_electrical_angle = roll_angle * mechanical2electricalDegrees[ROLL];
+
+			// 4. 🚨 目标电角度 = 当前 + (机械误差 * 极对数)。
+			// 这样算出来的 target 和 current 永远在最近的电角度周期内，不会暴走！
+			float target_electrical_angle  = current_electrical_angle + error_mech * mechanical2electricalDegrees[ROLL];
 
 			// 调用 PID 计算补偿量
 			pidCmd[ROLL] = updatePID(
@@ -276,10 +278,12 @@ void computeMotorCommands(float dt)
 			// 🔥🔥🔥 核心 FOC 修复：定子磁场超前/滞后
 			// 目标磁场角度 = 当前真实位置 + PID要求补偿的偏差量
 			// ==============================================
-			float stator_electrical_angle = current_electrical_angle + pidCmd[ROLL];
+			float stator_electrical_angle = current_electrical_angle - pidCmd[ROLL];
 
+			// float stator_electrical_angle = 0.0f - pidCmd[ROLL];
 			// 发送给电机驱动 (35.0f 是功率，觉得没力气可以稍微加大，但别超过电机额定发热范围)
-			PWM_Motor_SetAngle(MOTOR_PITCH, stator_electrical_angle, 45.0f);//调roll的时候先把pitch锁住不动
+
+			PWM_Motor_SetAngle(MOTOR_PITCH, stator_electrical_angle, 20.0f);//调roll的时候先把pitch锁住不动
 
 		}
 
@@ -320,8 +324,8 @@ void computeMotorCommands(float dt)
 		// ==========================================
 		// 防止 PID 没调好时，输出过大的补偿角导致电机暴力抽搐
 		// ==========================================
-		if (pidCmd[PITCH] >  0.5f) pidCmd[PITCH] =  0.5f;
-		if (pidCmd[PITCH] < -0.5f) pidCmd[PITCH] = -0.5f;
+		if (pidCmd[PITCH] >  3.14f) pidCmd[PITCH] =  3.14f;
+		if (pidCmd[PITCH] < -3.14f) pidCmd[PITCH] = -3.14f;
 
 		// =============== 速率限制 (防抖) ===============
 		outputRate[PITCH] = pidCmd[PITCH] - pidCmdPrev[PITCH];
@@ -340,8 +344,19 @@ void computeMotorCommands(float dt)
 		// ==============================================
 		float stator_electrical_angle = current_electrical_angle + pidCmd[PITCH];
 
+		/*if(sensors.margAttitude500Hz[PITCH]>0)
+		{
+
+			stator_electrical_angle = sensors.margAttitude500Hz[PITCH] - 0.02;
+		}
+		else
+		{
+			stator_electrical_angle = sensors.margAttitude500Hz[PITCH] + 0.02;
+		}*/
+
+
 		// 发送给电机驱动 (35.0f 是功率，觉得没力气可以稍微加大，但别超过电机额定发热范围)
-		PWM_Motor_SetAngle(MOTOR_ROLL, stator_electrical_angle, 45.0f);//调roll的时候先把pitch锁住不动
+		PWM_Motor_SetAngle(MOTOR_ROLL,stator_electrical_angle , 45.0f);//调roll的时候先把pitch锁住不动
 
 	}
 

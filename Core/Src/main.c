@@ -207,7 +207,7 @@ int main(void)
   eepromConfig.PID[YAW_PID].lastLastDterm = 0.0f;
   eepromConfig.PID[YAW_PID].windupGuard = 0.1f;
   // pitch
-  eepromConfig.PID[PITCH_PID].P = 0.01f;
+  eepromConfig.PID[PITCH_PID].P = 2.0f;
   eepromConfig.PID[PITCH_PID].I = 0.01f; // 大幅减小，防止爆炸
   eepromConfig.PID[PITCH_PID].D = 0.0f;
   eepromConfig.PID[PITCH_PID].lastDcalcValue = 0.0f;
@@ -216,8 +216,8 @@ int main(void)
   eepromConfig.PID[PITCH_PID].windupGuard = 0.5236f;
 
   // roll
-  eepromConfig.PID[ROLL_PID].P = 0.001f; // 跟 Pitch 给一样的值作为起步
-  eepromConfig.PID[ROLL_PID].I = 0.01f;
+  eepromConfig.PID[ROLL_PID].P = 0.02f; // 跟 Pitch 给一样的值作为起步
+  eepromConfig.PID[ROLL_PID].I = 0.0f;
   eepromConfig.PID[ROLL_PID].D = 0.0f;
   eepromConfig.PID[ROLL_PID].lastDcalcValue = 0.0f;
   eepromConfig.PID[ROLL_PID].lastDterm = 0.0f;
@@ -319,8 +319,8 @@ int main(void)
         {
           zeroPIDintegralError();           // 清空这2秒内乱算的积分
           zeroPIDstates();                  // 清空D项微分的毛刺
-          eepromConfig.pitchEnabled = false; // 姿态稳定，放开PID控制
-          eepromConfig.rollEnabled = true;
+          eepromConfig.pitchEnabled = true; // 姿态稳定，放开PID控制
+          eepromConfig.rollEnabled = false;
           eepromConfig.yawEnabled = false;
           printf(">>> AHRS收敛完成，电机使能！\r\n");
         }
@@ -328,8 +328,8 @@ int main(void)
 
       // 先不要补偿影响
       // [TIMING TEST] 记录本次 computeMotorCommands() 开始时间，供下一轮 MargAHRSupdate() 统计耗时
-      dbg_compute_start_us = micros();
-      dbg_has_compute_stamp = 1;
+      //dbg_compute_start_us = micros();
+      //dbg_has_compute_stamp = 1;
       computeMotorCommands(dt500Hz);
       // PWM_Motor_TestAllAngles();
       // printf("%f\r\n",dt500Hz);
@@ -381,7 +381,7 @@ int main(void)
 			printf("%.2f,%.2f,%.2f\r\n",
 			       sensors.margAttitude500Hz[ROLL],
 				   sensors.margAttitude500Hz[PITCH],
-				   0.0f);
+				   pidCmd[PITCH]);
 			/*printf("%.2f,%.2f,%.2f,%.2f\r\n",
 						       q0,
 							   q1,

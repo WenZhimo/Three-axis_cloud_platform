@@ -3,4 +3,4 @@
 ../Drivers/SRC/Src/computeMotorCommands.c:32:14:wrapToPif	16	static
 ../Drivers/SRC/Src/computeMotorCommands.c:41:14:moveTowardsAnglef	32	static
 ../Drivers/SRC/Src/computeMotorCommands.c:107:7:autoPan	16	static
-../Drivers/SRC/Src/computeMotorCommands.c:130:6:computeMotorCommands	96	static
+../Drivers/SRC/Src/computeMotorCommands.c:130:6:computeMotorCommands	104	static
