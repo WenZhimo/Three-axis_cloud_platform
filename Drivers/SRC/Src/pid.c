@@ -203,14 +203,14 @@ float updatePID(float command,
         float temp_iTerm = PIDparameters->iTerm + error * deltaT;
 
         // 全局积分限幅（所有轴）
-        if (temp_iTerm >  1.0f) temp_iTerm =  1.0f;
-        if (temp_iTerm < -1.0f) temp_iTerm = -1.0f;
+        if (temp_iTerm >  10.0f) temp_iTerm =  10.0f;
+        if (temp_iTerm < -10.0f) temp_iTerm = -10.0f;
 
         // PITCH 轴额外更严格限幅（防止爆炸）
         if (PIDparameters == &eepromConfig.PID[PITCH_PID])
         {
-            if (temp_iTerm >  3.14f) temp_iTerm =  3.14f;
-            if (temp_iTerm < -3.14f) temp_iTerm = -3.14f;
+            if (temp_iTerm >  10.0f) temp_iTerm =  10.0f;
+            if (temp_iTerm < -10.0f) temp_iTerm = -10.0f;
         }
 
         PIDparameters->iTerm = temp_iTerm;

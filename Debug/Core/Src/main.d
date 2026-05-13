@@ -35,8 +35,8 @@ Core/Src/main.o: ../Core/Src/main.c ../Core/Inc/main.h \
  E:/myprojects/SZYTTest/Three-axis_cloud_platformV2/Drivers/CustomDrivers/Inc/mpu6050Calibration.h \
  ../Drivers/SRC/Inc/evvgcCF.h ../Drivers/SRC/Inc/firstOrderFilter.h \
  ../Drivers/SRC/Inc/MargAHRS.h ../Drivers/SRC/Inc/computeMotorCommands.h \
- ../Drivers/SRC/Inc/pid.h ../Core/Inc/i2c.h ../Core/Inc/tim.h \
- ../Core/Inc/usart.h ../USB_DEVICE/App/usb_device.h \
+ ../Drivers/SRC/Inc/pid.h ../Drivers/SRC/Inc/config.h ../Core/Inc/i2c.h \
+ ../Core/Inc/tim.h ../Core/Inc/usart.h ../USB_DEVICE/App/usb_device.h \
  ../Middlewares/ST/STM32_USB_Device_Library/Core/Inc/usbd_def.h \
  ../USB_DEVICE/Target/usbd_conf.h ../Core/Inc/gpio.h
 ../Core/Inc/main.h:
@@ -82,6 +82,7 @@ E:/myprojects/SZYTTest/Three-axis_cloud_platformV2/Drivers/CustomDrivers/Inc/mpu
 ../Drivers/SRC/Inc/MargAHRS.h:
 ../Drivers/SRC/Inc/computeMotorCommands.h:
 ../Drivers/SRC/Inc/pid.h:
+../Drivers/SRC/Inc/config.h:
 ../Core/Inc/i2c.h:
 ../Core/Inc/tim.h:
 ../Core/Inc/usart.h:

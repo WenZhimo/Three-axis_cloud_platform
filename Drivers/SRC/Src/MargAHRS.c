@@ -193,57 +193,8 @@ void MargAHRSupdate(float gx, float gy, float gz,
         q2q3 = q2 * q3;
         q3q3 = q3 * q3;
 
-        // Quaternion -> Euler output with singular-zone protection.
-        {
-            static uint8_t eulerInitialized = 0;
-            static float rollContinuous = 0.0f;
-            static float yawContinuous = 0.0f;
-
-            float sinp = 2.0f * (q1q3 - q0q2);
-            float pitch;
-            float rollRaw;
-            float yawRaw;
-
-            if (sinp > 1.0f)
-            {
-                sinp = 1.0f;
-            }
-            if (sinp < -1.0f)
-            {
-                sinp = -1.0f;
-            }
-
-            pitch = -asinf(sinp);
-            pitch = constrain(pitch, -PITCH_OUTPUT_LIMIT_RAD, PITCH_OUTPUT_LIMIT_RAD);
-
-            rollRaw = atan2f(
-                2.0f * (q0q1 + q2q3),
-                q0q0 - q1q1 - q2q2 + q3q3);
-            yawRaw = atan2f(
-                2.0f * (q0q3 + q1q2),
-                q0q0 + q1q1 - q2q2 - q3q3);
-
-            if (eulerInitialized == 0)
-            {
-                rollContinuous = rollRaw;
-                yawContinuous = yawRaw;
-                eulerInitialized = 1;
-            }
-            else
-            {
-                // Roll becomes non-unique near pitch ~= +/-90deg.
-                if (fabsf(cosf(pitch)) >= GIMBAL_LOCK_COS_THRESH)
-                {
-                    rollContinuous += wrapToPif(rollRaw - rollContinuous);
-                }
-
-                yawContinuous += wrapToPif(yawRaw - yawContinuous);
-            }
-
-            sensors.margAttitude500Hz[ROLL] = wrapToPif(rollContinuous);
-            sensors.margAttitude500Hz[PITCH] = pitch;
-            sensors.margAttitude500Hz[YAW] = wrapToPif(yawContinuous);
-        }
+        sensors.margAttitude500Hz[ROLL ] = atan2f(2.0f * (q0q1 + q2q3), q0q0 - q1q1 - q2q2 + q3q3);
+        sensors.margAttitude500Hz[PITCH] = -asinf(2.0f * (q1q3 - q0q2));
 
         // 最后保护一次
         if (isnan(sensors.margAttitude500Hz[PITCH]))

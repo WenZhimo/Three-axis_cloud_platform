@@ -370,68 +370,17 @@ void orientIMU(void)
 			orientationMatrix[8] =  0;
 			break;
 
-		case 11: // Custom: 左侧安装，排针朝后
-			// 输出 Gimbal X (前方) = 输入 Sensor Y
+		case 11:
 			orientationMatrix[0] =  0;
-			orientationMatrix[1] =  1;
+			orientationMatrix[1] =  -1;
 			orientationMatrix[2] =  0;
-
-			// 输出 Gimbal Y (右方) = 输入 Sensor -Z (Z朝左，所以加负号)
-			orientationMatrix[3] =  0;
+			orientationMatrix[3] =  -1;
 			orientationMatrix[4] =  0;
-			orientationMatrix[5] = -1;
-
-			// 输出 Gimbal Z (下方) = 输入 Sensor -X (X朝上，所以加负号)
-			orientationMatrix[6] = -1;
-			orientationMatrix[7] =  0;
-			orientationMatrix[8] =  0;
-			break;
-
-		case 12: // 左侧安装，排针朝后
-			// 云台 X 轴 (横滚 Roll, 向前) = 传感器 Y 轴
-			orientationMatrix[0] =  0;
-			orientationMatrix[1] =  1;
-			orientationMatrix[2] =  0;
-
-			// 云台 Y 轴 (俯仰 Pitch, 向右) = 传感器 -Z 轴 (因为Z朝左)
-			orientationMatrix[3] =  0;
-			orientationMatrix[4] =  0;
-			orientationMatrix[5] = -1;
-
-			// 云台 Z 轴 (重力方向, 向下) = 传感器 -X 轴 (因为X朝上)
-			orientationMatrix[6] = -1;
-			orientationMatrix[7] =  0;
-			orientationMatrix[8] =  0;
-			break;
-		case 13:
-			// 云台 X 轴 (原固件认为是 Pitch) = 传感器 -Z 轴
-			orientationMatrix[0] =  0;
-			orientationMatrix[1] =  0;
-			orientationMatrix[2] = -1;
-
-			// 云台 Y 轴 (原固件认为是 Roll) = 传感器 -Y 轴
-			orientationMatrix[3] =  0;
-			orientationMatrix[4] = -1;
 			orientationMatrix[5] =  0;
-
-			// 云台 Z 轴 (重力依然向下) = 传感器 -X 轴
-			orientationMatrix[6] = -1;
-			orientationMatrix[7] =  0;
+			orientationMatrix[6] =  0;
+			orientationMatrix[7] = -1;
 			orientationMatrix[8] =  0;
 			break;
-
-		case 14:
-			orientationMatrix[0] =  0;
-			orientationMatrix[1] =  0;
-			orientationMatrix[2] =  -1;
-
-			orientationMatrix[3] =  0;
-			orientationMatrix[4] =  -1;
-			orientationMatrix[5] =  0;
-
-			orientationMatrix[6] =  -1;
-			orientationMatrix[7] =  0;
-			orientationMatrix[8] =  0;
 
         default: // Dot Front/Left/Top
             orientationMatrix[0] =  1;

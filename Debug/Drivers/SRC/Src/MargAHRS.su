@@ -2,4 +2,4 @@
 ../Drivers/SRC/Src/MargAHRS.c:49:14:wrapToPif	16	static
 ../Drivers/SRC/Src/MargAHRS.c:65:6:calculateAccConfidence	24	static
 ../Drivers/SRC/Src/MargAHRS.c:78:6:MargAHRSinit	48	static
-../Drivers/SRC/Src/MargAHRS.c:109:6:MargAHRSupdate	96	static
+../Drivers/SRC/Src/MargAHRS.c:109:6:MargAHRSupdate	80	static

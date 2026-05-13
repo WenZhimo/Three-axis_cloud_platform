@@ -36,7 +36,8 @@ Drivers/CustomDrivers/Src/mpu6050.o: \
  E:/myprojects/SZYTTest/Three-axis_cloud_platformV2/Drivers/CustomDrivers/Inc/drv_pwmMotors.h \
  ../Core/Inc/i2c.h ../Drivers/BGC/bgc32.h ../Drivers/SRC/Inc/evvgcCF.h \
  ../Drivers/SRC/Inc/firstOrderFilter.h ../Drivers/SRC/Inc/MargAHRS.h \
- ../Drivers/SRC/Inc/computeMotorCommands.h ../Drivers/SRC/Inc/pid.h
+ ../Drivers/SRC/Inc/computeMotorCommands.h ../Drivers/SRC/Inc/pid.h \
+ ../Drivers/SRC/Inc/config.h
 E:/myprojects/SZYTTest/Three-axis_cloud_platformV2/Drivers/CustomDrivers/Inc/mpu6050.h:
 ../Drivers/SRC/Inc/pid.h:
 E:/myprojects/SZYTTest/Three-axis_cloud_platformV2/Drivers/CustomDrivers/Inc/mpu6050Calibration.h:
@@ -80,3 +81,4 @@ E:/myprojects/SZYTTest/Three-axis_cloud_platformV2/Drivers/CustomDrivers/Inc/drv
 ../Drivers/SRC/Inc/MargAHRS.h:
 ../Drivers/SRC/Inc/computeMotorCommands.h:
 ../Drivers/SRC/Inc/pid.h:
+../Drivers/SRC/Inc/config.h:

@@ -38,7 +38,7 @@ USB_DEVICE/App/usb_device.o: ../USB_DEVICE/App/usb_device.c \
  E:/myprojects/SZYTTest/Three-axis_cloud_platformV2/Drivers/CustomDrivers/Inc/mpu6050Calibration.h \
  ../Drivers/SRC/Inc/evvgcCF.h ../Drivers/SRC/Inc/firstOrderFilter.h \
  ../Drivers/SRC/Inc/MargAHRS.h ../Drivers/SRC/Inc/computeMotorCommands.h \
- ../Drivers/SRC/Inc/pid.h \
+ ../Drivers/SRC/Inc/pid.h ../Drivers/SRC/Inc/config.h \
  ../Middlewares/ST/STM32_USB_Device_Library/Core/Inc/usbd_core.h \
  ../Middlewares/ST/STM32_USB_Device_Library/Core/Inc/usbd_def.h \
  ../Middlewares/ST/STM32_USB_Device_Library/Core/Inc/usbd_ioreq.h \
@@ -94,6 +94,7 @@ E:/myprojects/SZYTTest/Three-axis_cloud_platformV2/Drivers/CustomDrivers/Inc/mpu
 ../Drivers/SRC/Inc/MargAHRS.h:
 ../Drivers/SRC/Inc/computeMotorCommands.h:
 ../Drivers/SRC/Inc/pid.h:
+../Drivers/SRC/Inc/config.h:
 ../Middlewares/ST/STM32_USB_Device_Library/Core/Inc/usbd_core.h:
 ../Middlewares/ST/STM32_USB_Device_Library/Core/Inc/usbd_def.h:
 ../Middlewares/ST/STM32_USB_Device_Library/Core/Inc/usbd_ioreq.h:

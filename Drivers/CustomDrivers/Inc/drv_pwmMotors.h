@@ -15,8 +15,8 @@
 /* --- 枚举：定义三个电机轴 --- */
 typedef enum {
 
-	MOTOR_PITCH = 0, // 对应 Mot0
-	MOTOR_ROLL ,   // 对应 Mot1
+	MOTOR_ROLL = 0, // 对应 Mot0
+	MOTOR_PITCH ,   // 对应 Mot1
     MOTOR_YAW  ,    // 对应 Mot2
 } MotorAxis_t;
 

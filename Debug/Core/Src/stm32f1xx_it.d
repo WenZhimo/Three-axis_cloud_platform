@@ -35,7 +35,8 @@ Core/Src/stm32f1xx_it.o: ../Core/Src/stm32f1xx_it.c ../Core/Inc/main.h \
  E:/myprojects/SZYTTest/Three-axis_cloud_platformV2/Drivers/CustomDrivers/Inc/mpu6050Calibration.h \
  ../Drivers/SRC/Inc/evvgcCF.h ../Drivers/SRC/Inc/firstOrderFilter.h \
  ../Drivers/SRC/Inc/MargAHRS.h ../Drivers/SRC/Inc/computeMotorCommands.h \
- ../Drivers/SRC/Inc/pid.h ../Core/Inc/stm32f1xx_it.h
+ ../Drivers/SRC/Inc/pid.h ../Drivers/SRC/Inc/config.h \
+ ../Core/Inc/stm32f1xx_it.h
 ../Core/Inc/main.h:
 ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal.h:
 ../Core/Inc/stm32f1xx_hal_conf.h:
@@ -79,4 +80,5 @@ E:/myprojects/SZYTTest/Three-axis_cloud_platformV2/Drivers/CustomDrivers/Inc/mpu
 ../Drivers/SRC/Inc/MargAHRS.h:
 ../Drivers/SRC/Inc/computeMotorCommands.h:
 ../Drivers/SRC/Inc/pid.h:
+../Drivers/SRC/Inc/config.h:
 ../Core/Inc/stm32f1xx_it.h:

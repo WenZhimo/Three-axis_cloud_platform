@@ -106,17 +106,20 @@ uint8_t attitude_delta_initialized = 0;
 
 uint32_t micros(void)
 {
-	uint32_t m0 = HAL_GetTick();
-	uint32_t u0 = SysTick->VAL;
-	uint32_t m1 = HAL_GetTick();
-	uint32_t u1 = SysTick->VAL;
-	const uint32_t tms = SysTick->LOAD + 1;
+  uint32_t m0 = HAL_GetTick();
+  uint32_t u0 = SysTick->VAL;
+  uint32_t m1 = HAL_GetTick();
+  uint32_t u1 = SysTick->VAL;
+  const uint32_t tms = SysTick->LOAD + 1;
 
-	if (m1 != m0) {
-		return (m1 * 1000 + ((tms - u1) * 1000) / tms);
-	} else {
-		return (m0 * 1000 + ((tms - u0) * 1000) / tms);
-	}
+  if (m1 != m0)
+  {
+    return (m1 * 1000 + ((tms - u1) * 1000) / tms);
+  }
+  else
+  {
+    return (m0 * 1000 + ((tms - u0) * 1000) / tms);
+  }
 }
 
 /* USER CODE END 0 */
@@ -207,8 +210,8 @@ int main(void)
   eepromConfig.PID[YAW_PID].lastLastDterm = 0.0f;
   eepromConfig.PID[YAW_PID].windupGuard = 0.1f;
   // pitch
-  eepromConfig.PID[PITCH_PID].P = 2.0f;
-  eepromConfig.PID[PITCH_PID].I = 0.01f; // 大幅减小，防止爆炸
+  eepromConfig.PID[PITCH_PID].P = 0.01f;
+  eepromConfig.PID[PITCH_PID].I = 0.0f; // 大幅减小，防止爆炸
   eepromConfig.PID[PITCH_PID].D = 0.0f;
   eepromConfig.PID[PITCH_PID].lastDcalcValue = 0.0f;
   eepromConfig.PID[PITCH_PID].lastDterm = 0.0f;
@@ -216,8 +219,8 @@ int main(void)
   eepromConfig.PID[PITCH_PID].windupGuard = 0.5236f;
 
   // roll
-  eepromConfig.PID[ROLL_PID].P = 0.02f; // 跟 Pitch 给一样的值作为起步
-  eepromConfig.PID[ROLL_PID].I = 0.0f;
+  eepromConfig.PID[ROLL_PID].P = 0.01f; // 跟 Pitch 给一样的值作为起步
+  eepromConfig.PID[ROLL_PID].I = 0.01f;
   eepromConfig.PID[ROLL_PID].D = 0.0f;
   eepromConfig.PID[ROLL_PID].lastDcalcValue = 0.0f;
   eepromConfig.PID[ROLL_PID].lastDterm = 0.0f;
@@ -253,15 +256,15 @@ int main(void)
       previous500HzTime = currentTime;
 
       // 【我帮你补全：正确输出 gx】
-	  /*float test_sensor_x = (float)rawGyro[XAXIS].value / 16.4f;
-	  printf("TEST 传感器X角速度 = %.2f\n", test_sensor_x);*/
+      /*float test_sensor_x = (float)rawGyro[XAXIS].value / 16.4f;
+      printf("TEST 传感器X角速度 = %.2f\n", test_sensor_x);*/
 
-	  /*// 读取陀螺仪原始数据并转换成物理量
-	  float gx = ((float)rawGyro[ROLL].value - gyroRTBias[ROLL] - gyroTCBias[ROLL]) * GYRO_SCALE_FACTOR;
-	  float gy = ((float)rawGyro[PITCH].value - gyroRTBias[PITCH] - gyroTCBias[PITCH]) * GYRO_SCALE_FACTOR;
+      /*// 读取陀螺仪原始数据并转换成物理量
+      float gx = ((float)rawGyro[ROLL].value - gyroRTBias[ROLL] - gyroTCBias[ROLL]) * GYRO_SCALE_FACTOR;
+      float gy = ((float)rawGyro[PITCH].value - gyroRTBias[PITCH] - gyroTCBias[PITCH]) * GYRO_SCALE_FACTOR;
 
-	  // 输出 gx（直接用）
-	  printf("gy = %.2f rad/s\r\n", gy);*/
+      // 输出 gx（直接用）
+      printf("gy = %.2f rad/s\r\n", gy);*/
 
       dt500Hz = (float)deltaTime500Hz / 1000000.0f;
 
@@ -276,13 +279,13 @@ int main(void)
       sensors.gyro500Hz[YAW] = ((float)rawGyro[YAW].value - gyroRTBias[YAW] - gyroTCBias[YAW]) * GYRO_SCALE_FACTOR;
 
       // 输出加速度 + 陀螺仪 6个物理量
-     /* printf("ACC: X=%.3f  Y=%.3f  Z=%.3f | GYRO: ROLL=%.4f  PITCH=%.4f  YAW=%.4f\r\n",
-             sensors.accel500Hz[XAXIS],
-             sensors.accel500Hz[YAXIS],
-             sensors.accel500Hz[ZAXIS],
-             sensors.gyro500Hz[ROLL],
-             sensors.gyro500Hz[PITCH],
-             sensors.gyro500Hz[YAW]);*/
+      /* printf("ACC: X=%.3f  Y=%.3f  Z=%.3f | GYRO: ROLL=%.4f  PITCH=%.4f  YAW=%.4f\r\n",
+              sensors.accel500Hz[XAXIS],
+              sensors.accel500Hz[YAXIS],
+              sensors.accel500Hz[ZAXIS],
+              sensors.gyro500Hz[ROLL],
+              sensors.gyro500Hz[PITCH],
+              sensors.gyro500Hz[YAW]);*/
 
       // [TIMING TEST] 测量“上一次 computeMotorCommands() 开始 -> 本次 MargAHRSupdate() 开始”的耗时
       /*if (dbg_has_compute_stamp)
@@ -328,8 +331,8 @@ int main(void)
 
       // 先不要补偿影响
       // [TIMING TEST] 记录本次 computeMotorCommands() 开始时间，供下一轮 MargAHRSupdate() 统计耗时
-      //dbg_compute_start_us = micros();
-      //dbg_has_compute_stamp = 1;
+      // dbg_compute_start_us = micros();
+      // dbg_has_compute_stamp = 1;
       computeMotorCommands(dt500Hz);
       // PWM_Motor_TestAllAngles();
       // printf("%f\r\n",dt500Hz);
@@ -356,43 +359,50 @@ int main(void)
              pidCmd[PITCH],dt500Hz);
       }
 
-		if (systemReady && eepromConfig.rollEnabled)
-		{
-			float roll_angle_deg = sensors.margAttitude500Hz[ROLL] * 57.29578f;
-			float target_deg      = pointingCmd[ROLL] * 57.29578f;
-			float error_deg       = target_deg - roll_angle_deg;
+    if (systemReady && eepromConfig.rollEnabled)
+    {
+      float roll_angle_deg = sensors.margAttitude500Hz[ROLL] * 57.29578f;
+      float target_deg      = pointingCmd[ROLL] * 57.29578f;
+      float error_deg       = target_deg - roll_angle_deg;
 
-			printf("[ROLL DEBUG] 目标:%.2f | 当前:%.2f | 误差:%.2f | 积分:%.4f | 输出:%.3f\r\n",
-			target_deg,
-			roll_angle_deg,
-			error_deg,
-			eepromConfig.PID[ROLL_PID].iTerm,
-			pidCmd[ROLL]);
-		}*/
+      printf("[ROLL DEBUG] 目标:%.2f | 当前:%.2f | 误差:%.2f | 积分:%.4f | 输出:%.3f\r\n",
+      target_deg,
+      roll_angle_deg,
+      error_deg,
+      eepromConfig.PID[ROLL_PID].iTerm,
+      pidCmd[ROLL]);
+    }*/
 
-		if (systemReady)
-		{
-			/*float roll_angle_deg = sensors.margAttitude500Hz[ROLL] * 57.29578f;
-			float pitch_angle_deg = sensors.margAttitude500Hz[PITCH] * 57.29578f;
 
-			printf("ROLL:%.2f | PITCH:%.2f\r\n",
-					roll_angle_deg,pitch_angle_deg);*/
 
-			printf("%.2f,%.2f,%.2f\r\n",
-			       sensors.margAttitude500Hz[ROLL],
-				   sensors.margAttitude500Hz[PITCH],
-				   pidCmd[PITCH]);
-			/*printf("%.2f,%.2f,%.2f,%.2f\r\n",
-						       q0,
-							   q1,
-							   q2,
-							   q3);*/
 
-			/*printf("X=%.3f,Y=%.3f,Z=%.3f\r\n",
-			             sensors.gyro500Hz[ROLL],
-			             sensors.gyro500Hz[PITCH],
-			             sensors.gyro500Hz[YAW]);*/
-		}
+      if (systemReady)
+      {
+        /*float roll_angle_deg = sensors.margAttitude500Hz[ROLL] * 57.29578f;
+        float pitch_angle_deg = sensors.margAttitude500Hz[PITCH] * 57.29578f;
+
+        printf("ROLL:%.2f | PITCH:%.2f\r\n",
+            roll_angle_deg,pitch_angle_deg);*/
+
+       printf("%.2f,%.2f,%.2f,%.2f\r\n",
+               sensors.margAttitude500Hz[ROLL],
+             sensors.margAttitude500Hz[PITCH],
+             pidCmd[PITCH],
+             pidCmd[ROLL]);
+        /*printf("%.2f,%.2f,%.2f,%.2f\r\n",
+                     q0,
+                   q1,
+                   q2,
+                   q3);*/
+
+        /*printf("X=%.3f,Y=%.3f,Z=%.3f\r\n",
+                     sensors.gyro500Hz[ROLL],
+                     sensors.gyro500Hz[PITCH],
+                     sensors.gyro500Hz[YAW]);*/;
+
+		/* printf("Err:%.3f | Cmd:%.3f | Angle:%.3f\n",
+				 pointingCmd[PITCH] - sensors.margAttitude500Hz[PITCH], pidCmd[PITCH], sensors.margAttitude500Hz[PITCH]);*/
+      }
     }
     ////////////////////////////////////////////
 

@@ -43,6 +43,7 @@ extern "C" {
 #include "firstOrderFilter.h"
 #include "MargAHRS.h"
 #include "computeMotorCommands.h"
+#include "config.h"
 
 /* USER CODE END Includes */
 
