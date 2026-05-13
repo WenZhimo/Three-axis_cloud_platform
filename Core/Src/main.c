@@ -29,6 +29,7 @@
 #include "mpu6050.h"
 #include "computeMotorCommands.h"
 #include <math.h>
+#include "config.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/

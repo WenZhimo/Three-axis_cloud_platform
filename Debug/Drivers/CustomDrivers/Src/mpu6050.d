@@ -1,8 +1,8 @@
 Drivers/CustomDrivers/Src/mpu6050.o: \
  ../Drivers/CustomDrivers/Src/mpu6050.c \
- E:/myprojects/SZYTTest/Three-axis_cloud_platformV2/Drivers/CustomDrivers/Inc/mpu6050.h \
+ E:/projects/STM32/Three-axis_cloud_platform/gh/Drivers/CustomDrivers/Inc/mpu6050.h \
  ../Drivers/SRC/Inc/pid.h \
- E:/myprojects/SZYTTest/Three-axis_cloud_platformV2/Drivers/CustomDrivers/Inc/mpu6050Calibration.h \
+ E:/projects/STM32/Three-axis_cloud_platform/gh/Drivers/CustomDrivers/Inc/mpu6050Calibration.h \
  ../Core/Inc/main.h ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal.h \
  ../Core/Inc/stm32f1xx_hal_conf.h \
  ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_rcc.h \
@@ -33,13 +33,13 @@ Drivers/CustomDrivers/Src/mpu6050.o: \
  ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_ll_usb.h \
  ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_pcd_ex.h \
  ../Core/Inc/gpio.h ../Core/Inc/main.h \
- E:/myprojects/SZYTTest/Three-axis_cloud_platformV2/Drivers/CustomDrivers/Inc/drv_pwmMotors.h \
+ E:/projects/STM32/Three-axis_cloud_platform/gh/Drivers/CustomDrivers/Inc/drv_pwmMotors.h \
  ../Core/Inc/i2c.h ../Drivers/BGC/bgc32.h ../Drivers/SRC/Inc/evvgcCF.h \
  ../Drivers/SRC/Inc/firstOrderFilter.h ../Drivers/SRC/Inc/MargAHRS.h \
  ../Drivers/SRC/Inc/computeMotorCommands.h ../Drivers/SRC/Inc/pid.h
-E:/myprojects/SZYTTest/Three-axis_cloud_platformV2/Drivers/CustomDrivers/Inc/mpu6050.h:
+E:/projects/STM32/Three-axis_cloud_platform/gh/Drivers/CustomDrivers/Inc/mpu6050.h:
 ../Drivers/SRC/Inc/pid.h:
-E:/myprojects/SZYTTest/Three-axis_cloud_platformV2/Drivers/CustomDrivers/Inc/mpu6050Calibration.h:
+E:/projects/STM32/Three-axis_cloud_platform/gh/Drivers/CustomDrivers/Inc/mpu6050Calibration.h:
 ../Core/Inc/main.h:
 ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal.h:
 ../Core/Inc/stm32f1xx_hal_conf.h:
@@ -72,7 +72,7 @@ E:/myprojects/SZYTTest/Three-axis_cloud_platformV2/Drivers/CustomDrivers/Inc/mpu
 ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_pcd_ex.h:
 ../Core/Inc/gpio.h:
 ../Core/Inc/main.h:
-E:/myprojects/SZYTTest/Three-axis_cloud_platformV2/Drivers/CustomDrivers/Inc/drv_pwmMotors.h:
+E:/projects/STM32/Three-axis_cloud_platform/gh/Drivers/CustomDrivers/Inc/drv_pwmMotors.h:
 ../Core/Inc/i2c.h:
 ../Drivers/BGC/bgc32.h:
 ../Drivers/SRC/Inc/evvgcCF.h:
