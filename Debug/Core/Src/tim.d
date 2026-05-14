@@ -29,11 +29,11 @@ Core/Src/tim.o: ../Core/Src/tim.c ../Core/Inc/tim.h ../Core/Inc/main.h \
  ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_ll_usb.h \
  ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_pcd_ex.h \
  ../Core/Inc/gpio.h \
- E:/projects/STM32/Three-axis_cloud_platform/gh/Drivers/CustomDrivers/Inc/drv_pwmMotors.h \
+ E:/myprojects/SZYTTest/Three-axis_cloud_platformV2/Drivers/CustomDrivers/Inc/drv_pwmMotors.h \
  ../Core/Inc/main.h ../Core/Inc/i2c.h ../Drivers/BGC/bgc32.h \
  ../Drivers/SRC/Inc/pid.h \
- E:/projects/STM32/Three-axis_cloud_platform/gh/Drivers/CustomDrivers/Inc/mpu6050.h \
- E:/projects/STM32/Three-axis_cloud_platform/gh/Drivers/CustomDrivers/Inc/mpu6050Calibration.h \
+ E:/myprojects/SZYTTest/Three-axis_cloud_platformV2/Drivers/CustomDrivers/Inc/mpu6050.h \
+ E:/myprojects/SZYTTest/Three-axis_cloud_platformV2/Drivers/CustomDrivers/Inc/mpu6050Calibration.h \
  ../Drivers/SRC/Inc/evvgcCF.h ../Drivers/SRC/Inc/firstOrderFilter.h \
  ../Drivers/SRC/Inc/MargAHRS.h ../Drivers/SRC/Inc/computeMotorCommands.h \
  ../Drivers/SRC/Inc/pid.h ../Drivers/SRC/Inc/config.h
@@ -69,13 +69,13 @@ Core/Src/tim.o: ../Core/Src/tim.c ../Core/Inc/tim.h ../Core/Inc/main.h \
 ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_ll_usb.h:
 ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_pcd_ex.h:
 ../Core/Inc/gpio.h:
-E:/projects/STM32/Three-axis_cloud_platform/gh/Drivers/CustomDrivers/Inc/drv_pwmMotors.h:
+E:/myprojects/SZYTTest/Three-axis_cloud_platformV2/Drivers/CustomDrivers/Inc/drv_pwmMotors.h:
 ../Core/Inc/main.h:
 ../Core/Inc/i2c.h:
 ../Drivers/BGC/bgc32.h:
 ../Drivers/SRC/Inc/pid.h:
-E:/projects/STM32/Three-axis_cloud_platform/gh/Drivers/CustomDrivers/Inc/mpu6050.h:
-E:/projects/STM32/Three-axis_cloud_platform/gh/Drivers/CustomDrivers/Inc/mpu6050Calibration.h:
+E:/myprojects/SZYTTest/Three-axis_cloud_platformV2/Drivers/CustomDrivers/Inc/mpu6050.h:
+E:/myprojects/SZYTTest/Three-axis_cloud_platformV2/Drivers/CustomDrivers/Inc/mpu6050Calibration.h:
 ../Drivers/SRC/Inc/evvgcCF.h:
 ../Drivers/SRC/Inc/firstOrderFilter.h:
 ../Drivers/SRC/Inc/MargAHRS.h:

@@ -220,8 +220,8 @@ int main(void)
   eepromConfig.PID[PITCH_PID].windupGuard = 0.5236f;
 
   // roll
-  eepromConfig.PID[ROLL_PID].P = 0.01f; // 跟 Pitch 给一样的值作为起步
-  eepromConfig.PID[ROLL_PID].I = 0.01f;
+  eepromConfig.PID[ROLL_PID].P = 0.005f; // 跟 Pitch 给一样的值作为起步
+  eepromConfig.PID[ROLL_PID].I = 0.00f;
   eepromConfig.PID[ROLL_PID].D = 0.0f;
   eepromConfig.PID[ROLL_PID].lastDcalcValue = 0.0f;
   eepromConfig.PID[ROLL_PID].lastDterm = 0.0f;
@@ -324,7 +324,7 @@ int main(void)
           zeroPIDintegralError();           // 清空这2秒内乱算的积分
           zeroPIDstates();                  // 清空D项微分的毛刺
           eepromConfig.pitchEnabled = true; // 姿态稳定，放开PID控制
-          eepromConfig.rollEnabled = false;
+          eepromConfig.rollEnabled = true;
           eepromConfig.yawEnabled = false;
           printf(">>> AHRS收敛完成，电机使能！\r\n");
         }
@@ -388,8 +388,8 @@ int main(void)
        printf("%.2f,%.2f,%.2f,%.2f\r\n",
                sensors.margAttitude500Hz[ROLL],
              sensors.margAttitude500Hz[PITCH],
-             pidCmd[PITCH],
-             pidCmd[ROLL]);
+			 pidCmd[ROLL],
+             pidCmd[PITCH]);
         /*printf("%.2f,%.2f,%.2f,%.2f\r\n",
                      q0,
                    q1,

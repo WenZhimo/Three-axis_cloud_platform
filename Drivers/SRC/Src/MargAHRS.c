@@ -195,6 +195,7 @@ void MargAHRSupdate(float gx, float gy, float gz,
 
         sensors.margAttitude500Hz[ROLL ] = atan2f(2.0f * (q0q1 + q2q3), q0q0 - q1q1 - q2q2 + q3q3);
         sensors.margAttitude500Hz[PITCH] = -asinf(2.0f * (q1q3 - q0q2));
+        sensors.margAttitude500Hz[YAW] = atan2f(2.0f * (q1q2 + q0q3), q0q0 + q1q1 - q2q2 - q3q3);
 
         // 最后保护一次
         if (isnan(sensors.margAttitude500Hz[PITCH]))

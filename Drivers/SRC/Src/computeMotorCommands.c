@@ -346,7 +346,10 @@ void computeMotorCommands(float dt)
 		float current_elec = roll_angle * mechanical2electricalDegrees[ROLL];
 		float stator_electrical_angle = current_elec + pidCmd[ROLL];
 
-		PWM_Motor_SetAngle(MOTOR_PITCH, stator_electrical_angle, 45.0f);
+		PWM_Motor_SetAngle(MOTOR_PITCH, stator_electrical_angle, 35.0f);
+
+
+
 	}
 
 
