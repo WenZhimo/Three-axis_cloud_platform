@@ -9,7 +9,12 @@ RM := rm -rf
 
 # All of the sources participating in the build are defined here
 -include sources.mk
+-include USB_DEVICE/Target/subdir.mk
+-include USB_DEVICE/App/subdir.mk
+-include Middlewares/ST/STM32_USB_Device_Library/Core/Src/subdir.mk
+-include Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Src/subdir.mk
 -include Drivers/STM32F1xx_HAL_Driver/Src/subdir.mk
+-include Drivers/SRC/Src/subdir.mk
 -include Drivers/CustomDrivers/Src/subdir.mk
 -include Core/Startup/subdir.mk
 -include Core/Src/subdir.mk
@@ -61,8 +66,8 @@ all: main-build
 main-build: Three-axis_cloud_platformV2.elf secondary-outputs
 
 # Tool invocations
-Three-axis_cloud_platformV2.elf Three-axis_cloud_platformV2.map: $(OBJS) $(USER_OBJS) E:\projects\STM32\三轴云台\Three-axis_cloud_platformV2\STM32F103RCTX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-gcc -o "Three-axis_cloud_platformV2.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m3 -T"E:\projects\STM32\三轴云台\Three-axis_cloud_platformV2\STM32F103RCTX_FLASH.ld" --specs=nosys.specs -Wl,-Map="Three-axis_cloud_platformV2.map" -Wl,--gc-sections -static --specs=nano.specs -mfloat-abi=soft -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
+Three-axis_cloud_platformV2.elf Three-axis_cloud_platformV2.map: $(OBJS) $(USER_OBJS) E:\projects\STM32\Three-axis_cloud_platform\gh\STM32F103RCTX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-gcc -o "Three-axis_cloud_platformV2.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m3 -T"E:\projects\STM32\Three-axis_cloud_platform\gh\STM32F103RCTX_FLASH.ld" --specs=nosys.specs -Wl,-Map="Three-axis_cloud_platformV2.map" -Wl,--gc-sections -static --specs=nano.specs -mfloat-abi=soft -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 
