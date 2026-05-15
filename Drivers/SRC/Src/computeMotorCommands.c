@@ -85,10 +85,12 @@ float step_speed = 0.0f;
 #define PITCH_CMD_LIMIT_RAD (0.3f)// 10 5
 #define PITCH_I_ENABLE_ERR_RAD (1.20f)
 #define PITCH_TARGET_SLEW_RAD_S (0.90f)
-#define YAW_STATOR_SIGN (-1.0f)
+#define YAW_STATOR_SIGN (+1.0f)
 #define YAW_CMD_LIMIT_RAD (0.30f)
 #define YAW_I_ENABLE_ERR_RAD (1.20f)
 #define YAW_TARGET_SLEW_RAD_S (0.90f)
+#define YAW_CTRL_LPF_TAU_S (0.06f)
+#define YAW_ERR_DEADBAND_RAD (0.03f)
 #define AXIS_MIN_STEP_LIMIT_RAD (0.001f)
 
 // 双轴联调：先让 roll 到位，再放开 pitch
@@ -101,6 +103,7 @@ static uint8_t rollAxisWasEnabled = 0;
 static float pitchTargetSlew = 0.0f;
 static uint8_t pitchAxisWasEnabled = 0;
 static float yawTargetSlew = 0.0f;
+static float yawCtrlAngle = 0.0f;
 static uint8_t yawAxisWasEnabled = 0;
 static uint8_t pitchGateOpen = 0;
 static float rollSettledTime = 0.0f;
@@ -347,9 +350,6 @@ void computeMotorCommands(float dt)
 		float stator_electrical_angle = current_elec + pidCmd[ROLL];
 
 		PWM_Motor_SetAngle(MOTOR_PITCH, stator_electrical_angle, 35.0f);
-
-
-
 	}
 
 
@@ -410,13 +410,80 @@ void computeMotorCommands(float dt)
             float current_elec = pitch_angle * mechanical2electricalDegrees[PITCH];
             float stator_electrical_angle = -current_elec + pidCmd[PITCH];
 
-            PWM_Motor_SetAngle(MOTOR_ROLL, stator_electrical_angle, 25.0f);
+            PWM_Motor_SetAngle(MOTOR_ROLL, stator_electrical_angle, 40.0f);
 
         }
 
     // ========================= yaw =========================
+       /* if (eepromConfig.yawEnabled == true)
+		{
+			// =============== 【角度防NaN】===============
+			float yaw_angle = sensors.margAttitude500Hz[YAW];
+
+			// 1. 目标值（弧度）。如果是 0.0f，就是水平
+			float target_angle = pointingCmd[YAW];
+
+			if (isnan(yaw_angle) || isinf(yaw_angle))
+			{
+				yaw_angle = 0.0f;
+			}
+
+			// 1. 🚨 先算机械误差，并利用 wrapToPif 强制限制在 ±180 度（±PI）以内！
+			float error_mech = wrapToPif(target_angle - yaw_angle);
+
+			// 调用 PID 计算补偿量
+			pidCmd[YAW] = updatePID(
+				target_angle,
+				yaw_angle,
+				dt,
+				holdIntegrators,
+				&eepromConfig.PID[YAW_PID]);
+
+			// =============== PID输出防NaN ===============
+			if (isnan(pidCmd[YAW]) || isinf(pidCmd[YAW]))
+			{
+				pidCmd[YAW] = 0.0f;
+			}
+
+			// ==========================================
+			// 防止 PID 没调好时，输出过大的补偿角导致电机暴力抽搐
+			// ==========================================
+			if (pidCmd[YAW] > YAW_CMD_LIMIT_RAD)
+				pidCmd[YAW] = YAW_CMD_LIMIT_RAD;
+			if (pidCmd[YAW] < -YAW_CMD_LIMIT_RAD)
+				pidCmd[YAW] = -YAW_CMD_LIMIT_RAD;
+
+			// =============== 速率限制 (防抖) ===============
+			outputRate[YAW] = pidCmd[YAW] - pidCmdPrev[YAW];
+
+			if (outputRate[YAW] > eepromConfig.rateLimit)
+				pidCmd[YAW] = pidCmdPrev[YAW] + eepromConfig.rateLimit;
+
+			if (outputRate[YAW] < -eepromConfig.rateLimit)
+				pidCmd[YAW] = pidCmdPrev[YAW] - eepromConfig.rateLimit;
+
+			pidCmdPrev[YAW] = pidCmd[YAW];
+
+			// ==============================================
+			// 核心 FOC：定子磁场超前/滞后
+			// 目标磁场角度 = 当前真实位置 + PID要求补偿的偏差量
+			// ==============================================
+			float current_elec = yaw_angle * mechanical2electricalDegrees[YAW];
+			float stator_electrical_angle = current_elec + pidCmd[YAW];
+
+			PWM_Motor_SetAngle(MOTOR_YAW, stator_electrical_angle, 40.0f);
+
+		}*/
+
+
     if (eepromConfig.yawEnabled == true)
     {
+        float safeDt = dt;
+        if (safeDt > 0.01f || safeDt < 0.0001f || isnan(safeDt) || isinf(safeDt))
+        {
+            safeDt = 0.002f;
+        }
+
         float yaw_angle = sensors.margAttitude500Hz[YAW];
         if (isnan(yaw_angle) || isinf(yaw_angle))
         {
@@ -429,6 +496,9 @@ void computeMotorCommands(float dt)
         if (yawAxisWasEnabled == 0)
         {
             yawTargetSlew = yaw_angle;
+            yawCtrlAngle = yaw_angle;
+            // Align yaw target to current pose at enable to avoid first-step kick.
+            pointingCmd[YAW] = yaw_angle;
 
             pidCmdPrev[YAW] = 0.0f;
             eepromConfig.PID[YAW_PID].iTerm = 0.0f;
@@ -439,14 +509,25 @@ void computeMotorCommands(float dt)
             yawAxisWasEnabled = 1;
         }
 
+        {
+            float alpha = safeDt / (YAW_CTRL_LPF_TAU_S + safeDt);
+            float yawDelta = wrapToPif(yaw_angle - yawCtrlAngle);
+            yawCtrlAngle = wrapToPif(yawCtrlAngle + alpha * yawDelta);
+        }
+
         yawTargetSlew = moveTowardsAnglef(
             yawTargetSlew,
             wrapToPif(pointingCmd[YAW]),
-            YAW_TARGET_SLEW_RAD_S * dt);
+            YAW_TARGET_SLEW_RAD_S * safeDt);
 
         {
-            float yaw_error_mech = wrapToPif(yawTargetSlew - yaw_angle);
-            float current_electrical_angle = yaw_angle * mechanical2electricalDegrees[YAW];
+            float yaw_error_mech = wrapToPif(yawTargetSlew - yawCtrlAngle);
+            if (fabsf(yaw_error_mech) < YAW_ERR_DEADBAND_RAD)
+            {
+                yaw_error_mech = 0.0f;
+            }
+
+            float current_electrical_angle = yawCtrlAngle * mechanical2electricalDegrees[YAW];
             float target_electrical_angle = current_electrical_angle + yaw_error_mech * mechanical2electricalDegrees[YAW];
             float yaw_error_electrical = target_electrical_angle - current_electrical_angle;
             uint8_t yawHoldIntegrators = (fabsf(yaw_error_electrical) > YAW_I_ENABLE_ERR_RAD);
@@ -459,7 +540,7 @@ void computeMotorCommands(float dt)
             pidCmd[YAW] = updatePID(
                 target_electrical_angle,
                 current_electrical_angle,
-                dt,
+                safeDt,
                 yawHoldIntegrators,
                 &eepromConfig.PID[YAW_PID]);
 
@@ -471,7 +552,7 @@ void computeMotorCommands(float dt)
             pidCmd[YAW] = clampf(pidCmd[YAW], -YAW_CMD_LIMIT_RAD, YAW_CMD_LIMIT_RAD);
 
             {
-                float yawStepLimit = eepromConfig.rateLimit * dt;
+                float yawStepLimit = eepromConfig.rateLimit * safeDt;
                 if (yawStepLimit < AXIS_MIN_STEP_LIMIT_RAD)
                 {
                     yawStepLimit = AXIS_MIN_STEP_LIMIT_RAD;
@@ -493,12 +574,14 @@ void computeMotorCommands(float dt)
             {
                 float stator_electrical_angle = current_electrical_angle + YAW_STATOR_SIGN * pidCmd[YAW];
                 PWM_Motor_SetAngle(MOTOR_YAW, stator_electrical_angle, eepromConfig.yawPower);
+                // jd += 0.01;
             }
         }
     }
     else
     {
         yawAxisWasEnabled = 0;
+        yawCtrlAngle = 0.0f;
         pidCmdPrev[YAW] = 0.0f;
     }
 }
