@@ -63,7 +63,7 @@ void SystemClock_Config(void);
 /* USER CODE BEGIN 0 */
 eepromConfig_t eepromConfig;
 uint32_t last_print_tick = 0;
-const uint32_t print_interval = 100; // 姣?100ms 鎵撳嵃涓€娆?(10Hz)
+const uint32_t print_interval = 100; // 每 100 ms 打印一次（10 Hz）
 bool mpu_ok = false;
 
 sensors_t sensors;
@@ -79,18 +79,18 @@ uint32_t deltaTime500Hz, previous500HzTime, executionTime500Hz;
 
 float dt500Hz;
 
-// [TIMING TEST] 璁板綍 computeMotorCommands() 璧风偣鏃堕棿鎴筹紙us锛?
+// [TIMING TEST] 记录 computeMotorCommands() 的起始时间戳（us）
 uint32_t dbg_compute_start_us = 0;
-// [TIMING TEST] 鏍囪鏄惁宸叉湁鏈夋晥鐨?compute 璧风偣鏃堕棿鎴?
+// [TIMING TEST] 标记当前是否已有有效的 compute 起始时间戳
 uint8_t dbg_has_compute_stamp = 0;
-// [TIMING TEST] 鎵撳嵃鍒嗛璁℃暟锛岄伩鍏?500Hz 涓嬩覆鍙ｅ埛灞?
+// [TIMING TEST] 打印分频计数，避免 500 Hz 下串口刷屏
 uint16_t dbg_timing_print_div = 0;
 
 uint32_t loopStartTime;
 
-// 缁檚ysytemReady杞崲鐨勫叏灞€鍙橀噺
-uint32_t sysTickUptime = 0;       // 绯荤粺姣璁℃暟鍣?
-uint32_t sysTickCycleCounter = 0; // DWT 鍛ㄦ湡璁℃暟鍣?
+// 系统计时状态
+uint32_t sysTickUptime = 0;       // 系统毫秒计数器
+uint32_t sysTickCycleCounter = 0; // DWT 周期计数器
 
 bool systemReady = false;
 
@@ -100,7 +100,7 @@ uint32_t usTicks = 0;
 
 bool frame_500Hz = false;
 
-// 寮€鏈哄Э鎬佹敹鏁涘欢鏃惰鏁板櫒
+// 开机姿态收敛延时计数器
 uint32_t startup_delay_counter = 0;
 float attitude_deg_prev[3] = {0.0f, 0.0f, 0.0f};
 uint8_t attitude_delta_initialized = 0;
@@ -163,41 +163,42 @@ int main(void)
   MX_USB_DEVICE_Init();
   MX_TIM6_Init();
   /* USER CODE BEGIN 2 */
-  //-1.鎵撳紑涓柇
+  // 打开 SysTick 中断
   HAL_SYSTICK_Config(SystemCoreClock / 1000);
   HAL_NVIC_SetPriority(SysTick_IRQn, 0, 0);
 
-  // 0.鎵撳紑DWT
+  // 打开 DWT 周期计数器
   CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
   DWT->CYCCNT = 0;
   DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
 
-  // 1.鍏堟槸鍒濆鍖杄e缁撴瀯浣?
+  // 先初始化 EEPROM 配置
   init_eepromConfig(true);
-  // 2.鍒濆鍖朠WM
+  // 初始化 PWM
   PWM_Motor_Init();
   // HAL_Delay(3000);
-  // 3.鍒濆鍖栨护娉㈢殑
+  // 初始化滤波器
   initFirstOrderFilter();
-  // 4.鍒濆鍖杙id
+  // 初始化 PID
   initPID();
-  // 5.鏈€鍚庡垵濮嬪寲mpu6050
+  // 最后初始化 MPU6050
   orientIMU();
   if (MPU6050_Init(ACCEL_FS_4G, GYRO_FS_500DPS, DLPF_CFG_260HZ))//
   {
     HAL_GPIO_WritePin(LED1_GPIO, LED1_PIN, GPIO_PIN_SET);
-    printf(">>> MPU6050 Init SUCCESS! Ready to read data.\r\n");
-    printf(">>> 姝ｅ湪鎵ц娓╁害鏍″噯锛堣鑰愬績绛夊緟绾?2 鍒嗛挓锛?..\r\n");
-    mpu6050Calibration(); // 杩欐槸璁＄畻娓╁害鐨?
-    printf(">>> 鏍″噯瀹屾垚锛佸紑濮嬭緭鍑烘暟鎹€俓r\n\r\n");
+    printf(">>> MPU6050 初始化成功！准备开始读取数据。\r\n");
+    // printf(">>> 正在执行温度校准，请耐心等待约 2 分钟...\r\n");
+    // mpu6050Calibration(); // 温度补偿校准
+    // printf(">>> 校准完成！开始输出数据。\r\n\r\n");
+    printf(">>> 已跳过温度校准，开始输出数据。\r\n\r\n");
   }
   else
   {
-    printf(">>> 鍒濆鍖栧け璐ヤ簡銆俓r\n\r\n");
+    printf(">>> MPU6050 初始化失败。\r\n\r\n");
   }
 
-  // 6.鍒濆濮挎€佽
-  //  銆愪慨鏀广€戝厛鍏抽棴鐢垫満浣胯兘锛岀瓑AHRS鏀舵暃鍚庡啀寮€//
+  // 初始化姿态状态
+  // 先关闭电机使能，等待 AHRS 收敛后再打开
   eepromConfig.pitchEnabled = false;
   eepromConfig.rollEnabled = false;
   eepromConfig.yawEnabled = false;
@@ -205,14 +206,14 @@ int main(void)
   // yaw
   eepromConfig.PID[YAW_PID].P = 2.0f;
   eepromConfig.PID[YAW_PID].I = 0.0f;
-  eepromConfig.PID[YAW_PID].D = 0.016f;//涓嶅姞D鍚戜細鏈夎交寰嚜浼狅紝鍔犱簡濂戒簡寰堝浜嗭紝鍒硅溅浣滅敤
-  eepromConfig.PID[YAW_PID].lastDcalcValue = 0.0f; // 寮€鏈哄Э鎬佸彲鑳戒笉瀵癸紝鍏堢粰0
+  eepromConfig.PID[YAW_PID].D = 0.016f; // 加一点 D，减轻自激振荡
+  eepromConfig.PID[YAW_PID].lastDcalcValue = 0.0f; // 清空开机时的微分状态
   eepromConfig.PID[YAW_PID].lastDterm = 0.0f;
   eepromConfig.PID[YAW_PID].lastLastDterm = 0.0f;
   eepromConfig.PID[YAW_PID].windupGuard = 0.1f;
   // pitch
   eepromConfig.PID[PITCH_PID].P = 0.5f;
-  eepromConfig.PID[PITCH_PID].I = 0.05f; // 澶у箙鍑忓皬锛岄槻姝㈢垎鐐?
+  eepromConfig.PID[PITCH_PID].I = 0.05f; // 明显减小，防止过冲
   eepromConfig.PID[PITCH_PID].D = 0.008f;
   eepromConfig.PID[PITCH_PID].lastDcalcValue = 0.0f;
   eepromConfig.PID[PITCH_PID].lastDterm = 0.0f;
@@ -220,7 +221,7 @@ int main(void)
   eepromConfig.PID[PITCH_PID].windupGuard = 0.5236f;
 
   // roll
-  eepromConfig.PID[ROLL_PID].P = 0.03f; // 璺?Pitch 缁欎竴鏍风殑鍊间綔涓鸿捣姝?
+  eepromConfig.PID[ROLL_PID].P = 0.03f; // 先按与 Pitch 同量级的数值起步
   eepromConfig.PID[ROLL_PID].I = 0.0f;
   eepromConfig.PID[ROLL_PID].D = 0.008f;
   eepromConfig.PID[ROLL_PID].lastDcalcValue = 0.0f;
@@ -231,15 +232,15 @@ int main(void)
   systemReady = true;
   /* if (MPU6050_Init(ACCEL_FS_4G, GYRO_FS_500DPS, DLPF_CFG_42HZ)) {
          mpu_ok = true;
-         HAL_GPIO_WritePin(LED1_GPIO, LED1_PIN, GPIO_PIN_SET); // 鎴愬姛锛氫寒鐏?(娉ㄦ剰妫€鏌ヤ綘鐨勫畯瀹氫箟鏄?LED1_GPIO 杩樻槸 LED1_GPIO_Port)
+         HAL_GPIO_WritePin(LED1_GPIO, LED1_PIN, GPIO_PIN_SET); // 成功：LED 亮（注意检查你的宏是 LED1_GPIO 还是 LED1_GPIO_Port）
          printf(">>> MPU6050 Init SUCCESS! Ready to read data.\r\n");
      } else {
          mpu_ok = false;
-         HAL_GPIO_WritePin(LED1_GPIO, LED1_PIN, GPIO_PIN_RESET); // 澶辫触锛氱伃鐏?
+         HAL_GPIO_WritePin(LED1_GPIO, LED1_PIN, GPIO_PIN_RESET); // 失败：LED 灭
          printf(">>> ERROR: MPU6050 Init FAILED! Check wiring (I2C SDA/SCL) and power.\r\n");
      }*/
 
-  // ======= 闃叉绗竴鍦?dt 鐖嗙偢寮曞彂 NaN =======
+  // 防止第一帧 dt 异常过大导致 NaN
   __HAL_TIM_SET_COUNTER(&htim6, 0);
   previous500HzTime = micros();
 
@@ -264,7 +265,8 @@ int main(void)
 
       sensors.accel500Hz[XAXIS] = ((float)rawAccel[XAXIS].value - accelTCBias[XAXIS]) * ACCEL_SCALE_FACTOR;
       sensors.accel500Hz[YAXIS] = ((float)rawAccel[YAXIS].value - accelTCBias[YAXIS]) * ACCEL_SCALE_FACTOR;
-      // 鍘熸潵鏄湁璐熷彿鐨勶紝浣嗘槸搴旇鏄湪MPU6050_Read_And_Process()璋冩暣浜嗚酱鏂瑰悜锛屾墍浠ュ幓鎺夌鍙蜂繚璇佸悜涓嬪姞閫熷害锛岄伩鍏嶅弽閲嶅姏
+      // 轴向符号已经在 MPU6050_Read_And_Process() 中调整过，
+      // 这里保持 Z 轴向下为正，避免对重力方向再次取反。
       sensors.accel500Hz[ZAXIS] = ((float)rawAccel[ZAXIS].value - accelTCBias[ZAXIS]) * ACCEL_SCALE_FACTOR;
       sensors.gyro500Hz[ROLL] = ((float)rawGyro[ROLL].value - gyroRTBias[ROLL] - gyroTCBias[ROLL]) * GYRO_SCALE_FACTOR;
       sensors.gyro500Hz[PITCH] = ((float)rawGyro[PITCH].value - gyroRTBias[PITCH] - gyroTCBias[PITCH]) * GYRO_SCALE_FACTOR;
@@ -278,18 +280,18 @@ int main(void)
                      sensors.accel500Hz[ZAXIS],
                      0, 0, 0, false, dt500Hz);
 
-      // =============== 銆愭柊澧炪€戠瓑寰?AHRS 鏀舵暃 ================
-      if (startup_delay_counter < 1000) // 1000 * 2ms = 2绉?
+      // 等待 AHRS 收敛后再打开控制
+      if (startup_delay_counter < 1000) // 1000 * 2 ms = 2 s
       {
         startup_delay_counter++;
         if (startup_delay_counter == 1000)
         {
-          zeroPIDintegralError();           // 娓呯┖杩?绉掑唴涔辩畻鐨勭Н鍒?
-          zeroPIDstates();                  // 娓呯┖D椤瑰井鍒嗙殑姣涘埡
-          eepromConfig.pitchEnabled = true; // 濮挎€佺ǔ瀹氾紝鏀惧紑PID鎺у埗
+          zeroPIDintegralError();           // 清空收敛阶段累计的积分量
+          zeroPIDstates();                  // 清空微分项的瞬态尖峰
+          eepromConfig.pitchEnabled = true; // 姿态稳定后再打开控制
           eepromConfig.rollEnabled = false;
           eepromConfig.yawEnabled = false;
-          printf(">>> AHRS鏀舵暃瀹屾垚锛岀數鏈轰娇鑳斤紒\r\n");
+          printf(">>> AHRS 收敛完成，俯仰轴控制已使能。\r\n");
         }
       }
 
@@ -301,13 +303,13 @@ int main(void)
 
     if (HAL_GetTick() - last_print_tick >= 100) // 100ms = 10Hz
     {
-      last_print_tick = HAL_GetTick(); // 閲嶇疆鏃堕棿鎴?
+      last_print_tick = HAL_GetTick(); // 重置时间戳
 
       if (systemReady)
       {
-    	  printf("%.6f,%.6f\r\n",
-			 sensors.margAttitude500Hz[ROLL],
-			 pidCmd[ROLL]);
+    	  printf("\r\n%.6f,%.6f,",
+			 sensors.margAttitude500Hz[PITCH],
+			 pidCmd[PITCH]);
       }
     }
     ////////////////////////////////////////////
