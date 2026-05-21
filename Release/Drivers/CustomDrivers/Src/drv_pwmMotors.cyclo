@@ -1,4 +1,0 @@
-../Drivers/CustomDrivers/Src/drv_pwmMotors.c:33:19:PWM_Motor_Init	3
-../Drivers/CustomDrivers/Src/drv_pwmMotors.c:78:6:PWM_Motor_SetAngle	9
-../Drivers/CustomDrivers/Src/drv_pwmMotors.c:149:6:PWM_Motor_TestAllAngles	5
-../Drivers/CustomDrivers/Src/drv_pwmMotors.c:178:6:PWM_Motor_Hardware_Diagnosis	7

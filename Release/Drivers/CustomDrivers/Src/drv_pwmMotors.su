@@ -1,4 +1,0 @@
-../Drivers/CustomDrivers/Src/drv_pwmMotors.c:33:19:PWM_Motor_Init	40	static,ignoring_inline_asm
-../Drivers/CustomDrivers/Src/drv_pwmMotors.c:78:6:PWM_Motor_SetAngle	48	static,ignoring_inline_asm
-../Drivers/CustomDrivers/Src/drv_pwmMotors.c:149:6:PWM_Motor_TestAllAngles	16	static
-../Drivers/CustomDrivers/Src/drv_pwmMotors.c:178:6:PWM_Motor_Hardware_Diagnosis	8	static,ignoring_inline_asm

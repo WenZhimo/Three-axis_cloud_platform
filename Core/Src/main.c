@@ -289,7 +289,7 @@ int main(void)
           zeroPIDintegralError();           // 清空收敛阶段累计的积分量
           zeroPIDstates();                  // 清空微分项的瞬态尖峰
           eepromConfig.pitchEnabled = true; // 姿态稳定后再打开控制
-          eepromConfig.rollEnabled = false;
+          eepromConfig.rollEnabled = true;
           eepromConfig.yawEnabled = false;
           printf(">>> AHRS 收敛完成，俯仰轴控制已使能。\r\n");
         }

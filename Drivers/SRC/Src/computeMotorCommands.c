@@ -51,8 +51,8 @@ static float moveTowardsAnglef(float current, float target, float maxStep)
 }
 
 // 机械角 / 电角转换系数
-float mechanical2electricalDegrees[3] = {7.0f, 6.0f, 7.0f};
-float electrical2mechanicalDegrees[3] = {1.0f / 7.0f, 1.0f / 6.0f, 1.0f / 7.0f};
+float mechanical2electricalDegrees[3] = {20.0f, 20.0f, 20.0f};
+float electrical2mechanicalDegrees[3] = {1.0f / 20.0f, 1.0f / 20.0f, 1.0f / 20.0f};
 
 // 逻辑轴目标角：roll / pitch / yaw
 float pointingCmd[3] = {0.0f, 0.0f, 0.0f}; // 0.07f, -2.35f,0.0f
@@ -81,11 +81,12 @@ float step_speed = 0.0f;
 #define ROLL_I_ENABLE_ERR_RAD (1.20f)  // 电角误差过大时暂时关闭积分
 #define ROLL_TARGET_SLEW_RAD_S (0.90f) // roll 目标角变化速率限制，单位 rad/s
 // Pitch 轴配置
-#define PITCH_SENSOR_SIGN (1.0f) // 若逻辑 pitch 反馈方向相反，改为 +1.0f
-#define PITCH_STATOR_SIGN (1.0f) // 若 pitch 校正方向相反，改为 +1.0f
-#define PITCH_CMD_LIMIT_RAD (0.5f)// 10 5
+#define PITCH_SENSOR_SIGN (-1.0f) // 若逻辑 pitch 反馈方向相反，改为 +1.0f
+#define PITCH_STATOR_SIGN (2.0f) // 若 pitch 校正方向相反，改为 +1.0f
+#define PITCH_CMD_LIMIT_RAD (1.5f)// 10 5
 #define PITCH_I_ENABLE_ERR_RAD (1.20f)
 #define PITCH_TARGET_SLEW_RAD_S (0.90f)
+
 #define YAW_STATOR_SIGN (+1.0f)
 #define YAW_CMD_LIMIT_RAD (1.0f)
 #define YAW_I_ENABLE_ERR_RAD (1.20f)
@@ -303,10 +304,10 @@ void computeMotorCommands(float dt)
 		// 注意：逻辑 pitch 故意驱动物理 roll 电机，这里保持既有映射，
 		// 只修正定子角计算，避免大角度时位置项错误抵消力矩角。
 		// ==============================================
-		float pitch_elec_offset = -1.0f;
+		float pitch_elec_offset = -1.25f;
 		float current_elec = pitch_angle * mechanical2electricalDegrees[PITCH];
 		//float stator_electrical_angle = current_elec + PITCH_STATOR_SIGN * pidCmd[PITCH];
-		float stator_electrical_angle = current_elec + pitch_elec_offset ;
+		float stator_electrical_angle = current_elec + pitch_elec_offset + PITCH_STATOR_SIGN * pidCmd[PITCH];
 		stator_electrical_angle = wrapToPif(stator_electrical_angle);
 		//printf("\r\nPWM_Motor_SetAngle:%f",stator_electrical_angle);
 		PWM_Motor_SetAngle(MOTOR_ROLL, stator_electrical_angle, 60.0f);
