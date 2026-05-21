@@ -15,6 +15,7 @@ float current_rad = 0.0f;              // 当前实时角度，从 0 开始
 float step_speed_1 = 0.02f;              // 步进速度 (数值越小，转得越慢越柔和)
 float hold_power = 30.0f;              // 锁死时的功率 (20% 足够，太大容易发热发烫)
 
+
 /**
  * @brief 内部辅助函数：生成正弦查表
  */
@@ -136,6 +137,8 @@ void PWM_Motor_SetAngle(MotorAxis_t axis, float angle_rad, float power_percent)
                 TIM4->CCR4 = (uint32_t)ccr_val[0];
                 TIM2->CCR2 = (uint32_t)ccr_val[1];
                 TIM4->CCR3 = (uint32_t)ccr_val[2];
+
+
                 break;
         }
 
@@ -165,11 +168,11 @@ void PWM_Motor_TestAllAngles(void)
 
 	// 2. 将当前角度持续下发给底层驱动
 	// 当 current_rad == target_rad 时，步进逻辑停止，这里就会一直输出固定的角度，形成“锁死”效果
-	PWM_Motor_SetAngle(MOTOR_YAW,  0.0f, 0.0f);
+	PWM_Motor_SetAngle(MOTOR_YAW, current_rad,hold_power);
 
 	// 其他两个轴不通电
 	PWM_Motor_SetAngle(MOTOR_PITCH, 0.0f, 0.0f);
-	PWM_Motor_SetAngle(MOTOR_ROLL, current_rad,hold_power);
+	PWM_Motor_SetAngle(MOTOR_ROLL,0.0f, 0.0f );
 }
 
 /**

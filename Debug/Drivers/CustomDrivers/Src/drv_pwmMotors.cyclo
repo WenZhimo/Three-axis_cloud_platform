@@ -1,5 +1,5 @@
-../Drivers/CustomDrivers/Src/drv_pwmMotors.c:21:13:GenerateSinTable	2
-../Drivers/CustomDrivers/Src/drv_pwmMotors.c:33:19:PWM_Motor_Init	2
-../Drivers/CustomDrivers/Src/drv_pwmMotors.c:78:6:PWM_Motor_SetAngle	13
-../Drivers/CustomDrivers/Src/drv_pwmMotors.c:149:6:PWM_Motor_TestAllAngles	5
-../Drivers/CustomDrivers/Src/drv_pwmMotors.c:178:6:PWM_Motor_Hardware_Diagnosis	8
+../Drivers/CustomDrivers/Src/drv_pwmMotors.c:22:13:GenerateSinTable	2
+../Drivers/CustomDrivers/Src/drv_pwmMotors.c:34:19:PWM_Motor_Init	2
+../Drivers/CustomDrivers/Src/drv_pwmMotors.c:79:6:PWM_Motor_SetAngle	13
+../Drivers/CustomDrivers/Src/drv_pwmMotors.c:152:6:PWM_Motor_TestAllAngles	5
+../Drivers/CustomDrivers/Src/drv_pwmMotors.c:181:6:PWM_Motor_Hardware_Diagnosis	8

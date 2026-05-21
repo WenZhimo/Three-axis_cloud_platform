@@ -195,6 +195,7 @@ float updatePID(float command,
 
     if (PIDparameters->type == ANGULAR)
     {
+        error = standardRadianFormat(error);
     }
 
     // =============== 积分 + 超强抗饱和 ===============
@@ -218,12 +219,25 @@ float updatePID(float command,
 
     if (PIDparameters->lastDcalcValue == 0.0f)
     {
-        PIDparameters->lastDcalcValue = state;
+        if (PIDparameters->dErrorCalc == D_ERROR)
+        {
+            PIDparameters->lastDcalcValue = error;
+        }
+        else
+        {
+            PIDparameters->lastDcalcValue = state;
+        }
     }
 
     if (PIDparameters->dErrorCalc == D_ERROR)
     {
-        dTerm = (error - PIDparameters->lastDcalcValue) / deltaT;
+        float dInput = error - PIDparameters->lastDcalcValue;
+        if (PIDparameters->type == ANGULAR)
+        {
+            dInput = standardRadianFormat(dInput);
+        }
+
+        dTerm = dInput / deltaT;
         PIDparameters->lastDcalcValue = error;
     }
     else
