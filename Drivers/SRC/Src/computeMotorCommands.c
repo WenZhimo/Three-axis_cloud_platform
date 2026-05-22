@@ -51,8 +51,8 @@ static float moveTowardsAnglef(float current, float target, float maxStep)
 }
 
 // 机械角 / 电角转换系数
-float mechanical2electricalDegrees[3] = {20.0f, 20.0f, 20.0f};
-float electrical2mechanicalDegrees[3] = {1.0f / 20.0f, 1.0f / 20.0f, 1.0f / 20.0f};
+float mechanical2electricalDegrees[3] = {20.0f, 20.0f, 7.0f};
+float electrical2mechanicalDegrees[3] = {1.0f / 20.0f, 1.0f / 20.0f, 1.0f / 7.0f};
 
 // 逻辑轴目标角：roll / pitch / yaw
 float pointingCmd[3] = {0.0f, 0.0f, 0.0f}; // 0.07f, -2.35f,0.0f
@@ -142,6 +142,8 @@ void computeMotorCommands(float dt)
     holdIntegrators = false;
     if (eepromConfig.rollEnabled == true)
     {
+    	mechanical2electricalDegrees[ROLL] = 14.0f;
+    	electrical2mechanicalDegrees[ROLL] = 1.0f/14.0f;
         float safeDt = dt;
         if (safeDt > 0.01f || safeDt < 0.0001f || isnan(safeDt) || isinf(safeDt))
         {
@@ -305,7 +307,8 @@ void computeMotorCommands(float dt)
 		// 只修正定子角计算，避免大角度时位置项错误抵消力矩角。
 		// ==============================================
 		float pitch_elec_offset = -1.25f;
-		float current_elec = pitch_angle * mechanical2electricalDegrees[PITCH];
+		// lyl：我更改了映射方向，让归中没了，但是能左右维稳了lyljiafuhao
+		float current_elec = -pitch_angle * mechanical2electricalDegrees[PITCH];
 		//float stator_electrical_angle = current_elec + PITCH_STATOR_SIGN * pidCmd[PITCH];
 		float stator_electrical_angle = current_elec + pitch_elec_offset + PITCH_STATOR_SIGN * pidCmd[PITCH];
 		stator_electrical_angle = wrapToPif(stator_electrical_angle);
@@ -371,7 +374,7 @@ void computeMotorCommands(float dt)
 		// ==============================================
 		//pidCmd[YAW] = 0.0f;
 		float current_elec = yaw_angle * mechanical2electricalDegrees[YAW];
-		float stator_electrical_angle = -current_elec + pidCmd[YAW];
+		float stator_electrical_angle = -current_elec + YAW_STATOR_SIGN * pidCmd[YAW];
 
 		stator_electrical_angle = wrapToPif(stator_electrical_angle);
 

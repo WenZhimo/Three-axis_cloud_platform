@@ -204,16 +204,16 @@ int main(void)
   eepromConfig.yawEnabled = false;
 
   // yaw
-  eepromConfig.PID[YAW_PID].P = 2.0f;
-  eepromConfig.PID[YAW_PID].I = 0.0f;
+  eepromConfig.PID[YAW_PID].P = 0.01f;
+  eepromConfig.PID[YAW_PID].I = 0.01f;
   eepromConfig.PID[YAW_PID].D = 0.016f; // 加一点 D，减轻自激振荡
   eepromConfig.PID[YAW_PID].lastDcalcValue = 0.0f; // 清空开机时的微分状态
   eepromConfig.PID[YAW_PID].lastDterm = 0.0f;
   eepromConfig.PID[YAW_PID].lastLastDterm = 0.0f;
   eepromConfig.PID[YAW_PID].windupGuard = 0.1f;
   // pitch
-  eepromConfig.PID[PITCH_PID].P = 0.5f;
-  eepromConfig.PID[PITCH_PID].I = 0.05f; // 明显减小，防止过冲
+  eepromConfig.PID[PITCH_PID].P = 0.05f;
+  eepromConfig.PID[PITCH_PID].I = 0.0f; // 明显减小，防止过冲
   eepromConfig.PID[PITCH_PID].D = 0.008f;
   eepromConfig.PID[PITCH_PID].lastDcalcValue = 0.0f;
   eepromConfig.PID[PITCH_PID].lastDterm = 0.0f;
@@ -221,7 +221,7 @@ int main(void)
   eepromConfig.PID[PITCH_PID].windupGuard = 0.5236f;
 
   // roll
-  eepromConfig.PID[ROLL_PID].P = 0.03f; // 先按与 Pitch 同量级的数值起步
+  eepromConfig.PID[ROLL_PID].P = 0.01f; // 先按与 Pitch 同量级的数值起步
   eepromConfig.PID[ROLL_PID].I = 0.0f;
   eepromConfig.PID[ROLL_PID].D = 0.008f;
   eepromConfig.PID[ROLL_PID].lastDcalcValue = 0.0f;
@@ -289,8 +289,11 @@ int main(void)
           zeroPIDintegralError();           // 清空收敛阶段累计的积分量
           zeroPIDstates();                  // 清空微分项的瞬态尖峰
           eepromConfig.pitchEnabled = true; // 姿态稳定后再打开控制
+          //HAL_Delay(2000);
           eepromConfig.rollEnabled = true;
-          eepromConfig.yawEnabled = false;
+         // HAL_Delay(2000);
+          eepromConfig.yawEnabled = true;
+
           printf(">>> AHRS 收敛完成，俯仰轴控制已使能。\r\n");
         }
       }
@@ -307,9 +310,10 @@ int main(void)
 
       if (systemReady)
       {
-    	  printf("\r\n%.6f,%.6f,",
+    	  printf("%.6f,%.6f,%.6f\r\n",
+			 sensors.margAttitude500Hz[ROLL],
 			 sensors.margAttitude500Hz[PITCH],
-			 pidCmd[PITCH]);
+			 sensors.margAttitude500Hz[YAW]);
       }
     }
     ////////////////////////////////////////////
