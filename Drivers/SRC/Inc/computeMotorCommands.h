@@ -21,6 +21,11 @@ extern float electrical2mechanicalDegrees[3];
 extern float pidCmd[3];
 extern float outputRate[3];
 
+extern bool return_state;
+extern float return_state_avg;
+extern int return_count;
+
+
 typedef struct
 {
     float targetMechRad;

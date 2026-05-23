@@ -51,8 +51,8 @@ static float moveTowardsAnglef(float current, float target, float maxStep)
 }
 
 // 机械角 / 电角转换系数
-float mechanical2electricalDegrees[3] = {20.0f, 20.0f, 7.0f};
-float electrical2mechanicalDegrees[3] = {1.0f / 20.0f, 1.0f / 20.0f, 1.0f / 7.0f};
+float mechanical2electricalDegrees[3] = {14.0f, 20.0f, 7.0f};//rpy
+float electrical2mechanicalDegrees[3] = {1.0f / 14.0f, 1.0f / 20.0f, 1.0f / 7.0f};
 
 // 逻辑轴目标角：roll / pitch / yaw
 float pointingCmd[3] = {0.0f, 0.0f, 0.0f}; // 0.07f, -2.35f,0.0f
@@ -73,6 +73,11 @@ float centerPoint = 0.0f;
 float stepSmooth = 0.0f;
 float step = 0.0f;
 float step_speed = 0.0f;
+
+bool return_state = true;
+
+float return_state_avg = 0;
+int return_state_count = 0;
 
 // Roll 轴配置；当前逻辑 roll 实际驱动物理 pitch 电机
 #define ROLL_SENSOR_SIGN (-1.0f) // 若 roll 反馈方向相反，改为 +1.0f
@@ -137,13 +142,12 @@ float autoPan(float motorPos, float setpoint)
     return (setpoint -= stepSmooth);
 }
 
-void computeMotorCommands(float dt)
+void computeMotorCommands(float dt)//lyl:大角度的时候大概90或者70左右会触发万向死锁物理现象，
+									//尝试1：交换控制电机，由于无法控制在哪里触发，这次可能是70，下次就是80，一旦提前或者延后交换电机直接完蛋
 {
     holdIntegrators = false;
     if (eepromConfig.rollEnabled == true)
     {
-    	mechanical2electricalDegrees[ROLL] = 14.0f;
-    	electrical2mechanicalDegrees[ROLL] = 1.0f/14.0f;
         float safeDt = dt;
         if (safeDt > 0.01f || safeDt < 0.0001f || isnan(safeDt) || isinf(safeDt))
         {
@@ -308,7 +312,21 @@ void computeMotorCommands(float dt)
 		// ==============================================
 		float pitch_elec_offset = -1.25f;
 		// lyl：我更改了映射方向，让归中没了，但是能左右维稳了lyljiafuhao
-		float current_elec = -pitch_angle * mechanical2electricalDegrees[PITCH];
+
+		float current_elec;
+
+		if(return_state == true)
+		{
+			 current_elec = pitch_angle * mechanical2electricalDegrees[PITCH];
+			 return_state_avg += sensors.margAttitude500Hz[PITCH];
+			 return_state_count += 1;
+
+		}
+		else
+		{
+			 current_elec = -pitch_angle * mechanical2electricalDegrees[PITCH];
+		}
+
 		//float stator_electrical_angle = current_elec + PITCH_STATOR_SIGN * pidCmd[PITCH];
 		float stator_electrical_angle = current_elec + pitch_elec_offset + PITCH_STATOR_SIGN * pidCmd[PITCH];
 		stator_electrical_angle = wrapToPif(stator_electrical_angle);
@@ -379,7 +397,7 @@ void computeMotorCommands(float dt)
 		stator_electrical_angle = wrapToPif(stator_electrical_angle);
 
 		// printf("%.5f\r\n",stator_electrical_angle);
-		PWM_Motor_SetAngle(MOTOR_YAW, stator_electrical_angle, 40.0f);
+		PWM_Motor_SetAngle(MOTOR_YAW, stator_electrical_angle, 30.0f);
 		// jd += 0.01;
 	}
 

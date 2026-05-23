@@ -187,9 +187,9 @@ int main(void)
   {
     HAL_GPIO_WritePin(LED1_GPIO, LED1_PIN, GPIO_PIN_SET);
     printf(">>> MPU6050 初始化成功！准备开始读取数据。\r\n");
-    // printf(">>> 正在执行温度校准，请耐心等待约 2 分钟...\r\n");
-    // mpu6050Calibration(); // 温度补偿校准
-    // printf(">>> 校准完成！开始输出数据。\r\n\r\n");
+    printf(">>> 正在执行温度校准，请耐心等待约 2 分钟...\r\n");
+    mpu6050Calibration(); // 温度补偿校准
+    printf(">>> 校准完成！开始输出数据。\r\n\r\n");
     printf(">>> 已跳过温度校准，开始输出数据。\r\n\r\n");
   }
   else
@@ -204,7 +204,7 @@ int main(void)
   eepromConfig.yawEnabled = false;
 
   // yaw
-  eepromConfig.PID[YAW_PID].P = 0.01f;
+  eepromConfig.PID[YAW_PID].P = 0.03f;
   eepromConfig.PID[YAW_PID].I = 0.01f;
   eepromConfig.PID[YAW_PID].D = 0.016f; // 加一点 D，减轻自激振荡
   eepromConfig.PID[YAW_PID].lastDcalcValue = 0.0f; // 清空开机时的微分状态
@@ -213,7 +213,7 @@ int main(void)
   eepromConfig.PID[YAW_PID].windupGuard = 0.1f;
   // pitch
   eepromConfig.PID[PITCH_PID].P = 0.05f;
-  eepromConfig.PID[PITCH_PID].I = 0.0f; // 明显减小，防止过冲
+  eepromConfig.PID[PITCH_PID].I = 0.01f; // 明显减小，防止过冲
   eepromConfig.PID[PITCH_PID].D = 0.008f;
   eepromConfig.PID[PITCH_PID].lastDcalcValue = 0.0f;
   eepromConfig.PID[PITCH_PID].lastDterm = 0.0f;
@@ -221,8 +221,8 @@ int main(void)
   eepromConfig.PID[PITCH_PID].windupGuard = 0.5236f;
 
   // roll
-  eepromConfig.PID[ROLL_PID].P = 0.01f; // 先按与 Pitch 同量级的数值起步
-  eepromConfig.PID[ROLL_PID].I = 0.0f;
+  eepromConfig.PID[ROLL_PID].P = 0.03f; // 先按与 Pitch 同量级的数值起步
+  eepromConfig.PID[ROLL_PID].I = 0.01f;
   eepromConfig.PID[ROLL_PID].D = 0.008f;
   eepromConfig.PID[ROLL_PID].lastDcalcValue = 0.0f;
   eepromConfig.PID[ROLL_PID].lastDterm = 0.0f;
@@ -296,6 +296,7 @@ int main(void)
 
           printf(">>> AHRS 收敛完成，俯仰轴控制已使能。\r\n");
         }
+
       }
 
 
@@ -304,17 +305,25 @@ int main(void)
       executionTime500Hz = micros() - currentTime;
     }
 
-    if (HAL_GetTick() - last_print_tick >= 100) // 100ms = 10Hz
+    if (HAL_GetTick() - last_print_tick >= 10) // 100ms = 10Hz
     {
       last_print_tick = HAL_GetTick(); // 重置时间戳
 
       if (systemReady)
       {
-    	  printf("%.6f,%.6f,%.6f\r\n",
-			 sensors.margAttitude500Hz[ROLL],
-			 sensors.margAttitude500Hz[PITCH],
-			 sensors.margAttitude500Hz[YAW]);
+//    	  printf("%.6f,%.6f,%.6f\r\n",
+//			 sensors.margAttitude500Hz[ROLL],
+//			 sensors.margAttitude500Hz[PITCH],
+//			 sensors.margAttitude500Hz[YAW]);
+
+    	  if (eepromConfig.pitchEnabled && fabs(return_state_avg < 0.20) && return_state_count >= 10)
+    		  return_state = false;
+
+
       }
+
+
+
     }
     ////////////////////////////////////////////
 
