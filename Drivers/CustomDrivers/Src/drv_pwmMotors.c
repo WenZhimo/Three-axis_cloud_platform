@@ -8,12 +8,6 @@ static uint8_t isInitialized = 0;
 const float POLE_PAIRS = 7.0f;         // 你的电机极对数
 float target_deg_yaw = 90.0f;          // 你想要转到的目标机械角度 (比如 90 度)
 
-// 计算目标电气角度 (弧度)
-float target_rad;
-
-float current_rad = 0.0f;              // 当前实时角度，从 0 开始
-float step_speed_1 = 0.02f;              // 步进速度 (数值越小，转得越慢越柔和)
-float hold_power = 30.0f;              // 锁死时的功率 (20% 足够，太大容易发热发烫)
 
 
 /**
@@ -151,28 +145,7 @@ void PWM_Motor_SetAngle(MotorAxis_t axis, float angle_rad, float power_percent)
  */
 void PWM_Motor_TestAllAngles(void)
 {
-	target_rad = (target_deg_yaw * POLE_PAIRS * M_PI) / 180.0f;
 
-	if (current_rad < target_rad)
-	{
-		current_rad += step_speed_1; // 正向转动
-		// 防止稍微超过目标值，进行限幅
-		if (current_rad > target_rad) current_rad = target_rad;
-	}
-	else if (current_rad > target_rad)
-	{
-		current_rad -= step_speed_1; // 如果目标角度是负数，或者要往回转
-		// 防止超过目标值
-		if (current_rad < target_rad) current_rad = target_rad;
-	}
-
-	// 2. 将当前角度持续下发给底层驱动
-	// 当 current_rad == target_rad 时，步进逻辑停止，这里就会一直输出固定的角度，形成“锁死”效果
-	PWM_Motor_SetAngle(MOTOR_YAW, current_rad,hold_power);
-
-	// 其他两个轴不通电
-	PWM_Motor_SetAngle(MOTOR_PITCH, 0.0f, 0.0f);
-	PWM_Motor_SetAngle(MOTOR_ROLL,0.0f, 0.0f );
 }
 
 /**

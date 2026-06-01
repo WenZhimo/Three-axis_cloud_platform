@@ -23,8 +23,9 @@ extern float outputRate[3];
 
 extern bool return_state;
 extern float return_state_avg;
-extern int return_count;
-
+extern int return_state_count;
+extern bool return_state_roll;
+extern int return_state_count_roll;
 
 typedef struct
 {

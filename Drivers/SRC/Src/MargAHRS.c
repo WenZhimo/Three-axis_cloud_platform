@@ -33,7 +33,7 @@ uint8_t MargAHRSinitialized = 0;
 float accConfidenceDecay = 0.0f;
 float accConfidence      = 1.0f;
 
-// 你提供的约束函数
+// 约束函数
 float constrain(float input, float minValue, float maxValue)
 {
     if (input < minValue)
