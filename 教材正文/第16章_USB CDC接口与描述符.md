@@ -18,7 +18,7 @@
 
 第03章已经说明 MCU 的 RAM 和运行时内存边界，第05章已经说明 CMSIS 如何暴露芯片唯一 ID 地址，第15章已经建立 USB FS 设备、PCD 和 USB Device 中间件框架。本章在这些基础上进入 USB CDC 接口、静态内存和描述符。
 
-本章不把 USB CDC 写成当前 `printf()` 主输出路径。第11章已经确认 `printf()` 主线是 USART3。本章也不引入上位机协议解析，因为当前工作树没有发现 USB 接收数据被解析成项目参数或控制命令的证据。
+本章不把 USB CDC 写成当前 `printf()` 主输出路径。第11章已经确认 `printf()` 主线是 USART3。本章也不引入上位机协议解析，因为当前仓库没有发现 USB 接收数据被解析成项目参数或控制命令的证据。
 
 ## 3. 问题背景
 
@@ -54,20 +54,48 @@
 
 第16章内部有明确的顺序。
 
-第一步是静态内存分配。USB Device 中间件在运行 CDC 类时需要保存类状态。项目在 `usbd_conf.h` 中把 `USBD_malloc` 映射到 `USBD_static_malloc()`，在 `usbd_conf.c` 中用静态数组 `mem` 返回一块 `USBD_CDC_HandleTypeDef` 大小的内存。`USBD_static_free()` 是空函数，说明这条路径不是通用动态内存管理，而是为 USB Device 类对象准备的固定分配方式。
+第一步是静态内存分配。USB Device 中间件在运行 CDC 类时需要保存类状态。
 
-第二步是 CDC 接口注册。`usb_device.c` 中 `MX_USB_DEVICE_Init()` 先注册 `USBD_CDC` 类，再调用 `USBD_CDC_RegisterInterface(&hUsbDeviceFS, &USBD_Interface_fops_FS)`。`USBD_Interface_fops_FS` 定义在 `usbd_cdc_if.c`，包含四个回调入口：
+项目在 `usbd_conf.h` 中把 `USBD_malloc` 映射到 `USBD_static_malloc()`。
+
+`usbd_conf.c` 用静态数组 `mem` 返回一块 `USBD_CDC_HandleTypeDef` 大小的内存。
+
+`USBD_static_free()` 是空函数，说明这条路径不是通用动态内存管理，而是为 USB Device 类对象准备的固定分配方式。
+
+第二步是 CDC 接口注册。
+
+`usb_device.c` 中 `MX_USB_DEVICE_Init()` 先注册 `USBD_CDC` 类。
+
+随后它调用 `USBD_CDC_RegisterInterface(&hUsbDeviceFS, &USBD_Interface_fops_FS)`。
+
+`USBD_Interface_fops_FS` 定义在 `usbd_cdc_if.c`，包含四个回调入口：
 
 - `CDC_Init_FS()`
 - `CDC_DeInit_FS()`
 - `CDC_Control_FS()`
 - `CDC_Receive_FS()`
 
-第三步是 CDC 收发。`CDC_Init_FS()` 设置默认发送和接收缓冲区。`CDC_Receive_FS()` 在收到数据后重新设置接收缓冲并调用 `USBD_CDC_ReceivePacket()` 继续接收。`CDC_Transmit_FS()` 检查 `hcdc->TxState`，若正在发送则返回 `USBD_BUSY`，否则设置发送缓冲并调用 `USBD_CDC_TransmitPacket()`。
+第三步是 CDC 收发。
 
-第四步是描述符。`usb_device.c` 中 `USBD_Init(&hUsbDeviceFS, &FS_Desc, DEVICE_FS)` 把描述符集合交给 USB Device 栈。`FS_Desc` 定义在 `usbd_desc.c`，它包含设备描述符、语言 ID 字符串、厂商字符串、产品字符串、序列号字符串、配置字符串和接口字符串的函数指针。
+`CDC_Init_FS()` 设置默认发送和接收缓冲区。
 
-这些机制共同说明：USB CDC 接口已经具备枚举、接口回调、收发入口和运行时对象分配基础。但当前源码没有发现 `Core` 或 `Drivers` 中调用 `CDC_Transmit_FS()`，也没有发现 `CDC_Receive_FS()` 对收到的数据做业务解析。因此，本章只能确认接口框架存在，不能写成项目已经通过 USB CDC 进行控制参数通信。
+`CDC_Receive_FS()` 在收到数据后重新设置接收缓冲，并调用 `USBD_CDC_ReceivePacket()` 继续接收。
+
+`CDC_Transmit_FS()` 检查 `hcdc->TxState`，若正在发送则返回 `USBD_BUSY`；否则设置发送缓冲并调用 `USBD_CDC_TransmitPacket()`。
+
+第四步是描述符。
+
+`usb_device.c` 中 `USBD_Init(&hUsbDeviceFS, &FS_Desc, DEVICE_FS)` 把描述符集合交给 USB Device 栈。
+
+`FS_Desc` 定义在 `usbd_desc.c`，它包含设备描述符、语言 ID 字符串、厂商字符串、产品字符串、序列号字符串、配置字符串和接口字符串的函数指针。
+
+这些机制共同说明：USB CDC 接口已经具备枚举、接口回调、收发入口和运行时对象分配基础。
+
+但当前源码没有发现 `Core` 或 `Drivers` 中调用 `CDC_Transmit_FS()`。
+
+也没有发现 `CDC_Receive_FS()` 对收到的数据做业务解析。
+
+因此，本章只能确认接口框架存在，不能写成项目已经通过 USB CDC 进行控制参数通信。
 
 ## 6. STM32实现机制
 
@@ -170,7 +198,7 @@
 4. CDC 类运行时对象通过 `USBD_static_malloc()` 分配。
 5. CDC 接口初始化时挂接 `UserTxBufferFS` 和 `UserRxBufferFS`。
 
-当前项目中，USB CDC 的项目定位是“已初始化、可作为扩展通信接口的支线”。它不同于 USART3 调试输出，也不同于 500Hz 控制主循环。当前工作树没有发现：
+当前项目中，USB CDC 的项目定位是“已初始化、可作为扩展通信接口的支线”。它不同于 USART3 调试输出，也不同于 500Hz 实时控制循环。当前仓库没有发现：
 
 - `printf()` 重定向到 USB CDC。
 - 主循环调用 `CDC_Transmit_FS()` 输出状态。
@@ -234,7 +262,7 @@
 
 ### 9. `Get_SerialNum()`
 
-该函数读取 STM32 唯一 ID，并生成序列号字符串。它不是随机数，也不是固定常量。不同 MCU 理论上应生成不同的序列号字符串，但当前工作树没有主机枚举日志或实际设备验证记录，主机侧显示结果仍标记为【待验证】。
+该函数读取 STM32 唯一 ID，并生成序列号字符串。它不是随机数，也不是固定常量。不同 MCU 理论上应生成不同的序列号字符串，但当前仓库没有主机枚举日志或实际设备验证记录，主机侧显示结果仍标记为【待验证】。
 
 ## 9. 调试方法
 
@@ -263,7 +291,14 @@ USB CDC 调试应先区分“设备能枚举”“虚拟串口能出现”“项
 - `CDC_Receive_FS()` 是否解析 `Buf` 和 `Len`。
 - USB 接收数据是否进入 PID、目标角、运行状态或配置对象。
 
-当前工作树没有主机枚举日志、虚拟串口截图、USB 抓包或上位机通信记录，因此主机侧表现只能标记为【待验证】。源码层面只能确认 USB CDC 接口框架存在，未确认业务协议存在。
+当前仓库没有主机枚举日志、虚拟串口截图、USB 抓包或上位机通信记录，因此主机侧表现只能标记为【待验证】。源码层面只能确认 USB CDC 接口框架存在，未确认业务协议存在。
+
+调试记录建议：
+
+- 记录静态内存分配、CDC 回调表、RX/TX 缓冲区、描述符字符串和序列号来源。
+- 主机 VCOM 结论应单独记录枚举截图、串口节点、抓包或主机日志，缺失时标记为【待验证】。
+- 项目业务通信应记录 `CDC_Transmit_FS()` 调用点、`CDC_Receive_FS()` 解析逻辑和控制参数写入路径。
+- 如果搜索不到业务调用或解析路径，应写成“框架存在、业务协议未确认”，不能写成“USB 通信已完成”。
 
 ## 10. 常见问题
 
@@ -273,11 +308,17 @@ USB CDC 调试应先区分“设备能枚举”“虚拟串口能出现”“项
 
 可能原因：嵌入式工程常避免在运行时依赖堆分配。本项目只需要 CDC 类对象的固定内存，因此使用静态数组即可满足当前 USB Device 中间件需求。
 
+这不是说堆分配一定不行，而是当前项目没有必要把 USB 中间件对象放到不确定的运行时堆里。
+教材要让读者看见“工程选择”，不是背一条绝对规则。
+
 ### 2. `MAX_STATIC_ALLOC_SIZE` 是不是实际分配大小？
 
 触发条件：读者在 `usbd_conf.h` 中看到 `MAX_STATIC_ALLOC_SIZE = 512`。
 
 可能原因：当前 `USBD_static_malloc()` 的实际返回数组按 `sizeof(USBD_CDC_HandleTypeDef)` 定义，而不是按 `MAX_STATIC_ALLOC_SIZE` 创建。教材以当前函数实现为准。
+
+这说明宏定义和真正分配尺寸并不总是一回事。
+写教材时必须跟着实际代码走，而不能只看宏名猜用途。
 
 ### 3. 为什么 `CDC_Control_FS()` 里很多分支是空的？
 
@@ -285,11 +326,17 @@ USB CDC 调试应先区分“设备能枚举”“虚拟串口能出现”“项
 
 可能原因：当前项目没有把 USB CDC 的串口参数同步到真实 UART 或业务配置。对于 USB 虚拟串口接口，主机控制请求可以存在，但项目不一定使用这些参数。
 
+也就是说，接口协议和业务协议是两层东西。
+接口收到了控制请求，不代表项目已经拿它做了配置联动。
+
 ### 4. 有 `CDC_Transmit_FS()`，为什么说 USB 不是当前调试输出主线？
 
 触发条件：读者把存在发送函数等同于正在使用。
 
 可能原因：函数存在只是可调用入口。当前 `Core` 和 `Drivers` 中没有发现业务调用 `CDC_Transmit_FS()`；第11章已经确认 `printf()` 经 USART3 输出。
+
+所以本章只能把 USB CDC 定位为“可扩展接口”，不能写成“当前状态输出通道”。
+这也是章节边界的一部分。
 
 ### 5. 有 `CDC_Receive_FS()`，为什么不能说项目支持上位机控制？
 
@@ -297,11 +344,17 @@ USB CDC 调试应先区分“设备能枚举”“虚拟串口能出现”“项
 
 可能原因：当前 `CDC_Receive_FS()` 只重新挂接接收缓冲并继续接收，没有解析 `Buf`，也没有写入项目控制参数。上位机控制需要额外协议解析证据。
 
+换句话说，接收回调存在，只能说明 USB 通道可接收数据。
+是否真的把数据变成控制命令，还要看后面有没有解析和写参。
+
 ### 6. 产品字符串 `STM32 Virtual ComPort` 代表什么？
 
 触发条件：主机枚举时显示类似虚拟串口名称。
 
 可能原因：该字符串来自 `USBD_PRODUCT_STRING_FS`。它说明设备描述符把产品标识为虚拟串口，但不证明项目业务层已经使用 USB 通信。
+
+主机看到什么名字，取决于描述符。
+项目有没有用 USB 做业务通信，还要看发送、接收和协议处理路径。
 
 ### 7. 序列号为什么要读 `DEVICE_ID1/2/3`？
 
@@ -309,15 +362,54 @@ USB CDC 调试应先区分“设备能枚举”“虚拟串口能出现”“项
 
 可能原因：这些宏基于 STM32 唯一 ID 地址。项目用唯一 ID 生成 USB 序列号，使不同芯片可以在主机侧具有不同设备实例标识。实际主机侧显示结果需要硬件枚举证据，当前标记为【待验证】。
 
+这能帮助主机区分不同板子，但前提仍是先成功枚举。
+没有主机侧证据时，只能写“序列号生成机制存在”，不能写“已经在主机侧确认唯一标识正确”。
+
 ## 11. 实践任务
 
-1. 在 `usbd_conf.h` 中找到 `USBD_malloc`、`USBD_free`、`USBD_MAX_NUM_INTERFACES` 和 `USBD_MAX_NUM_CONFIGURATION`。验收依据是能说明当前 USB Device 内存和配置数量限制。
-2. 在 `usbd_conf.c` 中找到 `USBD_static_malloc()` 和 `USBD_static_free()`。验收依据是能解释为什么它不是通用堆分配。
-3. 在 `usb_device.c` 中找到 `USBD_CDC_RegisterInterface()`。验收依据是能指出它如何连接到 `USBD_Interface_fops_FS`。
-4. 在 `usbd_cdc_if.c` 中找到 `UserRxBufferFS`、`UserTxBufferFS` 和 `USBD_Interface_fops_FS`。验收依据是能画出 CDC 回调表。
-5. 在 `usbd_cdc_if.c` 中比较 `CDC_Receive_FS()` 和 `CDC_Transmit_FS()`。验收依据是能说明接收回调当前没有业务解析，发送函数当前没有被业务调用。
-6. 在 `usbd_desc.c` 中找到 VID、PID、Manufacturer、Product、Configuration 和 Interface 字符串。验收依据是能说明主机枚举信息来自哪里。
-7. 在 `usbd_desc.c/h` 中追踪 `DEVICE_ID1/2/3`、`Get_SerialNum()` 和 `IntToUnicode()`。验收依据是能说明序列号如何生成。
+开始任务前，先回到本章第8节定位静态内存、CDC 回调表、描述符和序列号生成证据；第9节提供 USB CDC 分层验证顺序。
+
+任务一至任务七属于仓库内 CDC 与描述符证据；任务八属于仓库外主机侧验证分层。
+
+任务一：确认 USB Device 静态限制。
+
+在 `usbd_conf.h` 中找到 `USBD_malloc`、`USBD_free`、`USBD_MAX_NUM_INTERFACES` 和 `USBD_MAX_NUM_CONFIGURATION`。
+验收依据是记录内存分配宏、接口数量上限和配置数量上限三类限制。
+
+任务二：分析静态分配函数。
+
+在 `usbd_conf.c` 中找到 `USBD_static_malloc()` 和 `USBD_static_free()`。
+验收依据是记录静态缓冲区名称、分配函数返回值和释放函数行为，结论标明它不是通用堆分配。
+
+任务三：追踪 CDC 接口注册。
+
+在 `usb_device.c` 中找到 `USBD_CDC_RegisterInterface()`。
+验收依据是记录 `USBD_CDC_RegisterInterface()` 的实参，并对应到 `USBD_Interface_fops_FS`。
+
+任务四：画出 CDC 回调表。
+
+在 `usbd_cdc_if.c` 中找到 `UserRxBufferFS`、`UserTxBufferFS` 和 `USBD_Interface_fops_FS`。
+验收依据是回调表至少列出 Init、DeInit、Control、Receive 四个入口及其对应函数。
+
+任务五：比较 CDC 接收和发送边界。
+
+在 `usbd_cdc_if.c` 中比较 `CDC_Receive_FS()` 和 `CDC_Transmit_FS()`。
+验收依据是记录接收函数当前处理动作、发送函数调用搜索结果，并标明当前未形成业务协议证据。
+
+任务六：确认描述符字符串来源。
+
+在 `usbd_desc.c` 中找到 VID、PID、Manufacturer、Product、Configuration 和 Interface 字符串。
+验收依据是描述符表包含 VID、PID、Manufacturer、Product、Configuration、Interface 六项来源。
+
+任务七：追踪唯一序列号生成。
+
+在 `usbd_desc.c/h` 中追踪 `DEVICE_ID1/2/3`、`Get_SerialNum()` 和 `IntToUnicode()`。
+验收依据是序列号链路图包含 `DEVICE_ID1/2/3`、`Get_SerialNum()` 和 `IntToUnicode()` 三个节点。
+
+任务八：整理 USB CDC 主机侧验证表。
+
+整理“设备枚举”“虚拟串口出现”“CDC 收发回调触发”“项目业务协议生效”四个层级。
+验收依据是验证表分成四行：设备枚举、虚拟串口出现、CDC 收发回调触发、项目业务协议生效；缺少主机截图、串口工具记录或抓包时，对应结论保持【待验证】。
 
 ## 12. 思考题
 
@@ -327,6 +419,7 @@ USB CDC 调试应先区分“设备能枚举”“虚拟串口能出现”“项
 4. USB CDC 的 line coding 参数为什么不能直接理解为 USART3 参数？
 5. 为什么描述符能影响主机识别结果，却不等于项目业务通信已经完成？
 6. 如果要把 USB CDC 扩展成调参接口，应该优先在哪个文件增加解析入口？
+7. 如果仓库中存在 `CDC_Transmit_FS()`，还需要哪些调用证据才能说明 USB CDC 已经承担当前调试输出主线？
 
 ## 13. 本章总结
 
@@ -344,9 +437,16 @@ USB CDC 调试应先区分“设备能枚举”“虚拟串口能出现”“项
 - `usbd_desc.c` 定义 VID、PID 和多个字符串描述符。
 - `Get_SerialNum()` 通过 STM32 唯一 ID 生成 USB 序列号字符串。
 
+本章边界：
+
+- 本章证明 USB CDC 接口、描述符和静态内存路径存在，不证明 USB CDC 已承担当前调试输出主线。
+- `CDC_Receive_FS()` 当前没有业务协议解析证据，`CDC_Transmit_FS()` 当前也没有业务调用证据。
+
 下一章可以进入项目数据结构与配置对象。到这里，USB 支线已经完成：教材确认了 USB Device 初始化、CDC 接口和描述符，但也明确当前项目主调试输出仍是 USART3，USB CDC 未被证明承担业务协议解析。
 
 ---
+
+### 章节尾部固定检查
 
 知识链路：
 

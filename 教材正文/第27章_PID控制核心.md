@@ -28,7 +28,9 @@
 - `传感器数据结构sensors_t`
 - `500Hz实时控制循环`
 
-第23章已经说明 `sensors.margAttitude500Hz` 是当前主线姿态输出，第25章说明它被控制链路读取，第26章说明 `computeMotorCommands(dt500Hz)` 在 500Hz 分支中被调用。第39项知识 `角度归一化` 虽然在第23章内已经出现，但在控制中还会继续发挥作用：角度误差必须按圆周最短路径计算，不能简单按普通浮点差值理解。
+第23章已经说明 `sensors.margAttitude500Hz` 是当前主线姿态输出，第25章说明它被控制链路读取。
+
+第26章说明 `computeMotorCommands(dt500Hz)` 在 500Hz 实时控制分支中被调用。第39项知识 `角度归一化` 虽然在第23章内已经出现，但在控制中还会继续发挥作用：角度误差必须按圆周最短路径计算，不能简单按普通浮点差值理解。
 
 本章只讲 PID 控制的核心框架：目标值、当前值、误差、时间步长、P/I/D 参数和输出。第28章会继续展开 D 项滤波、输出限幅、目标角斜坡逼近和积分抗饱和。
 
@@ -50,7 +52,7 @@ I：看误差累计
 D：看误差或状态变化趋势
 ```
 
-在本项目中，PID 不是孤立函数。它嵌在 500Hz 控制链路中：
+在本项目中，PID 不是孤立函数。它嵌在 500Hz 实时控制链路中：
 
 ```text
 sensors.margAttitude500Hz
@@ -118,7 +120,9 @@ typedef struct PIDdata
 } PIDdata_t;
 ```
 
-这里的 `P/I/D` 是控制参数，`iTerm` 是积分状态，`lastDcalcValue`、`lastDterm` 和 `lastLastDterm` 是 D 项历史状态。`type` 用于区分角度 PID 和其他形式，`dErrorCalc` 用于选择 D 项来自误差变化还是状态变化。
+这里的 `P/I/D` 是控制参数，`iTerm` 是积分状态。
+
+`lastDcalcValue`、`lastDterm` 和 `lastLastDterm` 是 D 项历史状态。`type` 用于区分角度 PID 和其他形式，`dErrorCalc` 用于选择 D 项来自误差变化还是状态变化。
 
 `windupGuard` 字段虽然存在，并且 `config.c` 与 `main.c` 都会写入它，但当前 `updatePID()` 的积分限幅没有读取该字段，而是使用函数内部的固定范围。教材后续分析积分抗饱和时必须以实际代码为准，不能只根据字段名推断行为。
 
@@ -131,7 +135,9 @@ typedef struct PIDdata
 #define ANGULAR 1
 ```
 
-当 `PIDparameters->type == ANGULAR` 时，`updatePID()` 会对误差调用 `standardRadianFormat()`，把角度误差约束到接近 `[-PI, PI]` 的范围。这样可以避免目标角从 `+179°` 到 `-179°` 时被误认为需要转过接近 358°。
+当 `PIDparameters->type == ANGULAR` 时，`updatePID()` 会对误差调用 `standardRadianFormat()`。
+
+它把角度误差约束到接近 `[-PI, PI]` 的范围。这样可以避免目标角从 `+179°` 到 `-179°` 时被误认为需要转过接近 358°。
 
 ### 4.5 ROLL/PITCH/YAW PID索引
 
@@ -211,7 +217,7 @@ output = P * error + I * iTerm + D * dAverage
 
 PID 本身不是 STM32 外设，而是运行在 500Hz 主循环中的 C 算法。它和 STM32 的关系体现在三个方面。
 
-第一，PID 运行在第26章建立的控制周期中。`main()` 在 500Hz 分支中调用：
+第一，PID 运行在第26章建立的控制周期中。`main()` 在 500Hz 实时控制分支中调用：
 
 ```c
 computeMotorCommands(dt500Hz);
@@ -386,6 +392,10 @@ zeroPIDstates()
 
 这说明控制接通前会清空积分项和 D 项历史状态，降低开机瞬间历史状态造成的冲击。第32章运行门控和异常防护会继续分析这个行为的系统意义。
 
+### 本节证据边界
+
+本节只根据当前仓库说明文件、函数、宏、变量和调用关系。运行时频率、外部硬件表现、主机侧现象、传感器方向、电机响应或真实控制效果仍需调试记录、日志或仓库外实测证据；缺少证据时保持【待验证】。
+
 ## 9. 调试方法
 
 第一步，确认 PID 是否初始化。
@@ -416,6 +426,17 @@ zeroPIDstates()
 - 在 `computeMotorCommands()` 中观察 `pidCmd[PITCH]`、`pidCmd[YAW]` 和进入 Roll PID 分支后的 `pidCmd[ROLL]`。
 - 如果 PID 输出正常但电机输出异常，后续应进入电角转换、限幅和 PWM 输出章节，而不是只改 P/I/D 参数。
 
+调试记录建议：
+
+- 记录 `initPID()` 调用、实际 P/I/D 参数来源、输入姿态、目标角和 `dt500Hz`。
+- 对每个轴，应记录误差、P 项、I 项、D 项、积分暂停状态和 `updatePID()` 返回值。
+- Roll 分支记录应包含 `return_state_roll`、目标斜坡和是否进入 Roll PID 调用。
+- PID 输出只证明控制量计算结果，不能直接证明电机方向、稳定性或安全性。
+
+调试边界：
+
+当前仓库能证明 PID 初始化、参数来源、输入输出变量和调用路径。闭环稳定性、方向正确性、电机温升和安全性必须依赖仓库外实测记录；缺少证据时保持【待验证】。
+
 ## 10. 常见问题
 
 问题一：PID 是不是直接控制 PWM 占空比。
@@ -442,31 +463,52 @@ zeroPIDstates()
 
 因为它们是 PID 控制之后的细节知识点，已经映射到第28章。本章先建立目标、状态、误差、时间步长和 P/I/D 输出的主干，避免读者还没理解闭环核心就被安全约束细节淹没。
 
+问题七：PID 输出是有限数字，是否就表示控制一定稳定。
+
+不能。
+有限数字只说明当前计算没有直接溢出成 `NaN` 或 `Inf`。
+稳定性还依赖姿态方向、时间步长、轴使能、输出限幅、速率限制、电机映射和实物响应。
+本章只能证明 PID 计算链路存在，不能单独证明仓库外实测稳定。
+
 ## 11. 实践任务
+
+开始任务前，先回到本章第8节定位 `initPID()`、PID 参数来源、`updatePID()` 输入、P/I/D 输出和三轴分支入口；第9节提供 PID 调试顺序。
 
 任务一：画出 PID 调用链。
 
 从 `main()` 中 `computeMotorCommands(dt500Hz)` 开始，画到 `Pitch/Yaw/Roll` 分支中的 `updatePID()` 调用。
+验收依据是 PID 调用链图包含入口函数、三轴分支、`updatePID()` 调用和 Roll 分支差异。
 
 任务二：列出 PID 参数来源。
 
 分别记录 `config.c` 和 `main.c` 中 ROLL/PITCH/YAW 的 P/I/D 值，并说明当前运行时应以哪一处为准。
+验收依据是参数来源表包含 `config.c` 默认值、`main.c` 覆盖值、先后关系和运行结论。
 
 任务三：验证 Pitch PID 输入。
 
-观察 `pointingCmd[PITCH]`、`sensors.margAttitude500Hz[PITCH]`、`dt` 和 `pidCmd[PITCH]`，说明它们如何对应 `command/state/deltaT/output`。
+观察 `pointingCmd[PITCH]`、`sensors.margAttitude500Hz[PITCH]`、`dt` 和 `pidCmd[PITCH]`。
+说明它们如何对应 `command/state/deltaT/output`。
+验收依据是 PID 输入表包含变量名、实参位置、角色和观察值。
 
 任务四：验证 Yaw 角度包裹。
 
 观察 `yaw_angle`、`target_angle`、`error_mech` 和 `safe_target`，说明为什么 Yaw 在进入 PID 前要处理角度环绕。
+验收依据是 Yaw 误差表包含相关变量、`wrapToPif()` 调用位置和环绕结论。
 
 任务五：验证 Roll 状态分支。
 
 观察 `return_state_roll`。说明 Roll 在回中阶段和后续 PID 阶段的调用路径有什么不同。
+验收依据是 Roll 分支表包含回中路径、后续 PID 路径和输出影响结论。
 
 任务六：验证 PID 状态清零。
 
-观察 `startup_delay_counter == 1000` 时 `zeroPIDintegralError()` 和 `zeroPIDstates()` 是否执行，并记录清零前后的 `iTerm` 和 D 项历史值。
+观察 `startup_delay_counter == 1000` 时 `zeroPIDintegralError()` 和 `zeroPIDstates()` 是否执行。
+记录清零前后的 `iTerm` 和 D 项历史值。
+验收依据是清零记录表包含触发条件、清零函数、清零前后值和门控顺序。
+
+实践边界：
+
+当前任务优先形成表格、链路图、搜索记录和计算过程。涉及 IDE 现场、构建日志、断点数值、外部波形、主机侧结果或硬件响应时，若没有截图、日志或仓库外实测证据，结论保持【待验证】。
 
 ## 12. 思考题
 
@@ -476,6 +518,8 @@ zeroPIDstates()
 4. 为什么角度误差必须考虑 `[-PI, PI]` 环绕。
 5. 为什么 Roll 的 PID 路径不能只看 `eepromConfig.rollEnabled`，还要看 `return_state_roll`。
 6. 如果 PID 输出正常但电机方向错误，为什么下一步应检查电角转换和电机映射，而不是只调 P/I/D。
+7. 如果 PID 参数被覆盖后看起来“更稳”，为什么仍要记录覆盖来源和当前生效位置。
+8. PID 输出正常时，还需要哪些第29章、第30章和仓库外实测证据，才能判断电机真实响应可信？
 
 ## 13. 本章总结
 
@@ -501,3 +545,31 @@ zeroPIDstates()
 - 当前 PID 参数存在 `config.c` 默认值和 `main.c` 调试覆盖值并存的情况，分析运行行为时必须以实际写入顺序为准。
 
 下一章将进入 `PID细节与输出约束`，进一步分析 D 项平滑、积分暂停、目标变化平滑、输出限幅和速率限制如何保护闭环控制不因瞬态误差或参数不当而失控。
+
+### 章节尾部固定检查
+
+知识链路：
+
+`知识点总表`
+-> `知识依赖图`
+-> `学习优先级`
+-> `教学顺序`
+-> `教材章节`
+
+项目证据：
+
+- `Drivers/SRC/Inc/pid.h`
+- `Drivers/SRC/Src/pid.c`
+- `Drivers/SRC/Src/config.c`
+- `Core/Src/main.c`
+- `Drivers/SRC/Src/computeMotorCommands.c`
+
+质量自检：
+
+- P0 事实错误：通过
+- P1 依赖断层：通过
+- P2 逻辑连贯：通过
+- P3 项目证据：通过
+- P4 原理展开：通过
+- P5 调试实践：通过
+- P6 表达统一：通过
