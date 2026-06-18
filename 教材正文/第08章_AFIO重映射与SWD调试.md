@@ -81,13 +81,16 @@ AFIO 重映射的核心作用是处理“同一外设功能如何落到具体引
 
 USART3 的映射选择可以按项目证据拆成三种路线：
 
-| 映射状态 | TX/RX 路线 | 项目结论 |
-| --- | --- | --- |
-| 不重映射 | PB10/PB11 | 与本项目 I2C2_SCL/SDA 冲突，不采用 |
-| 部分重映射 | PC10/PC11 | `.ioc` 和 `usart.c` 均采用 |
-| 完全重映射 | PD8/PD9 | 当前 `.ioc` LQFP64 引脚清单未采用 |
+| 映射状态 | `USART3_REMAP[1:0]` | TX/RX 路线 | 项目结论 |
+| --- | --- | --- | --- |
+| 不重映射 | `00b` / `0x00000000` | PB10/PB11 | 与本项目 I2C2_SCL/SDA 冲突，不采用 |
+| 部分重映射 | `01b` / `0x00000010` | PC10/PC11 | `.ioc` 和 `usart.c` 均采用 |
+| 完全重映射 | `11b` / `0x00000030` | PD8/PD9 | 当前目标封装 LQFP64 不走这条路线 |
 
 因此，USART3 partial remap 是在“避开 I2C2 默认占用”和“使用当前封装可见引脚”之间形成的工程选择。
+`.ioc` 明确给出 `Mcu.CPN=STM32F103RCT6`、`Mcu.Package=LQFP64` 和
+`Mcu.UserName=STM32F103RCTx`。对当前封装而言，不能把 PD8/PD9 full remap
+当成等价备选路线写入项目结论。
 
 ## 6. STM32实现机制
 
@@ -104,6 +107,11 @@ USART3 的映射选择可以按项目证据拆成三种路线：
 - 调用 `__HAL_AFIO_REMAP_SWJ_NOJTAG()`。
 
 同一函数中还启用了 PWR 时钟，这是 CubeMX 生成的全局 MSP 初始化动作；本章只把它作为相邻源码证据记录，不把它解释为 USART3 或 SWD 重映射的必要条件。
+
+AFIO 时钟使能也可以继续向下拆到 RCC 位级证据：
+`__HAL_RCC_AFIO_CLK_ENABLE()` 通过 HAL RCC 宏设置
+`RCC->APB2ENR` 中的 `RCC_APB2ENR_AFIOEN` 位。没有这个时钟门控，
+教材不能假设后续对 `AFIO->MAPR` 的配置路径已经具备访问前提。
 
 `HAL_UART_MspInit()` 中的关键动作是：
 
@@ -123,11 +131,24 @@ USART3 的映射选择可以按项目证据拆成三种路线：
 - `AFIO_MAPR_SWJ_CFG_Msk` 对应 `SWJ_CFG[2:0]` 位域。
 - `AFIO_MAPR_SWJ_CFG_JTAGDISABLE` 的注释语义是 JTAG-DP 关闭、SW-DP 保留。
 
+位域关系可以继续拆成：
+
+| 位域 | 位置 | 项目相关取值 | 含义 |
+| --- | --- | --- | --- |
+| `USART3_REMAP[1:0]` | `AFIO->MAPR[5:4]` | `0x00000010` | USART3 partial remap，TX/PC10、RX/PC11 |
+| `SWJ_CFG[2:0]` | `AFIO->MAPR[26:24]` | `0x02000000` | JTAG-DP Disabled，SW-DP Enabled |
+| `AFIOEN` | `RCC->APB2ENR[0]` | `1` | AFIO 外设时钟打开 |
+
+这三个字段解决的问题不同：`AFIOEN` 解决寄存器访问前提，`SWJ_CFG`
+解决调试接口组合，`USART3_REMAP` 解决 USART3 引脚路线。把它们混成一个“串口配置”
+会造成讲解跳步。
+
 HAL 宏不是普通函数调用的“标签”。`__HAL_AFIO_REMAP_USART3_PARTIAL()` 最终通过
 `AFIO_REMAP_PARTIAL(...)` 对 `AFIO->MAPR` 做读改写；`__HAL_AFIO_REMAP_SWJ_NOJTAG()`
 最终通过 `AFIO_DBGAFR_CONFIG(...)` 修改 `SWJ_CFG` 位域。
 
-这也是为什么不建议在业务代码中手写一个完整的 `AFIO->MAPR = ...` 字面值。完整覆盖容易误伤其它重映射位或 SWJ 配置位。教材只要求读者看懂生成代码和宏链路，不要求在本项目中手写 AFIO 寄存器配置。
+这也是为什么不建议在业务代码中手写一个完整的 `AFIO->MAPR = ...` 字面值。完整覆盖容易误伤其它重映射位或 SWJ 配置位。尤其是 `USART3_REMAP`
+和 `SWJ_CFG` 共用同一个 `MAPR` 寄存器，修改串口映射后仍要确认调试接口配置没有被破坏。教材只要求读者看懂生成代码和宏链路，不要求在本项目中手写 AFIO 寄存器配置。
 
 ## 7. 项目中的应用
 
@@ -139,6 +160,7 @@ HAL 宏不是普通函数调用的“标签”。`__HAL_AFIO_REMAP_USART3_PARTIA
 - `Core/Src/usart.c`
 - `Three-axis_cloud_platformV2.ioc`
 - `Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_gpio_ex.h`
+- `Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_rcc.h`
 - `Drivers/CMSIS/Device/ST/STM32F1xx/Include/stm32f103xe.h`
 
 文件之间的关系是：
@@ -148,6 +170,7 @@ HAL 宏不是普通函数调用的“标签”。`__HAL_AFIO_REMAP_USART3_PARTIA
 - `stm32f1xx_hal_msp.c` 承载全局 AFIO 与调试接口重映射动作。
 - `usart.c` 承载 USART3 引脚配置和 USART3 部分重映射动作。
 - HAL GPIOEx 头文件定义项目使用的 AFIO 重映射宏。
+- HAL RCC 头文件定义 `__HAL_RCC_AFIO_CLK_ENABLE()` 如何设置 AFIO 时钟门控。
 - CMSIS 设备头文件定义 `AFIO->MAPR`、`USART3_REMAP` 与 `SWJ_CFG` 位域。
 
 在项目主流程中，`HAL_Init()` 会触发全局 MSP 初始化；后续 `MX_USART3_UART_Init()` 会进入 USART3 初始化链路，并触发对应 UART MSP 初始化。两者分别处理“调试接口保留”和“USART3 引脚重映射”，共同形成本章的项目主线。
@@ -194,11 +217,16 @@ HAL 宏不是普通函数调用的“标签”。`__HAL_AFIO_REMAP_USART3_PARTIA
 
 对照 CMSIS 头文件，USART3 映射有三个取值：
 
-- `AFIO_MAPR_USART3_REMAP_NOREMAP`：TX/PB10，RX/PB11。
-- `AFIO_MAPR_USART3_REMAP_PARTIALREMAP`：TX/PC10，RX/PC11。
-- `AFIO_MAPR_USART3_REMAP_FULLREMAP`：TX/PD8，RX/PD9。
+- `AFIO_MAPR_USART3_REMAP_NOREMAP = 0x00000000`：TX/PB10，RX/PB11。
+- `AFIO_MAPR_USART3_REMAP_PARTIALREMAP = 0x00000010`：TX/PC10，RX/PC11。
+- `AFIO_MAPR_USART3_REMAP_FULLREMAP = 0x00000030`：TX/PD8，RX/PD9。
 
 项目中 PB10/PB11 已经在 `.ioc` 中配置为 I2C2_SCL/SDA。因此 USART3 如果不重映射，会和 I2C2 的项目引脚路线冲突。项目选择 PC10/PC11 是有明确资源避让理由的。
+
+再叠加第01章平台证据，项目目标是 `STM32F103RCTx`、封装是 `LQFP64`。ST
+STM32F103xC/xD/xE 数据手册的封装引脚表中，PD8/PD9 不属于 LQFP64
+引出的普通引脚路线。因此本项目不能把 USART3 full remap 当成与 PC10/PC11
+同等可用的备选方案。
 
 ### 4. `HAL_UART_MspInit()` 中的 USART3 部分重映射
 
@@ -216,7 +244,7 @@ MX_USART3_UART_Init()
 -> __HAL_RCC_GPIOC_CLK_ENABLE()
 -> PC10/PC11 GPIO mode
 -> __HAL_AFIO_REMAP_USART3_PARTIAL()
--> AFIO->MAPR USART3_REMAP[1:0] = partial remap
+-> AFIO->MAPR USART3_REMAP[1:0] = 01b
 ```
 
 链路中的每一层解决的问题不同：USART3 时钟让外设寄存器工作，GPIOC 时钟让 PC10/PC11 配置可写，GPIO 模式让引脚进入输入或复用输出状态，AFIO 重映射让 USART3 功能选择 PC10/PC11 这组路线。
@@ -245,9 +273,12 @@ MX_USART3_UART_Init()
 
 - `.ioc` 中 PA13/PA14 是否保留为串行调试接口。
 - `HAL_MspInit()` 中是否启用 AFIO 时钟。
+- `RCC->APB2ENR.AFIOEN` 是否为 1。
 - `HAL_MspInit()` 中是否调用 `__HAL_AFIO_REMAP_SWJ_NOJTAG()`。
+- `AFIO->MAPR[26:24]` 是否对应 `NOJTAG` 语义。
 - `.ioc` 中 PC10/PC11 是否配置为 USART3_TX/RX。
 - `HAL_UART_MspInit()` 中是否调用 `__HAL_AFIO_REMAP_USART3_PARTIAL()`。
+- `AFIO->MAPR[5:4]` 是否对应 USART3 partial remap。
 - `usart.c` 中 PC10/PC11 的 GPIO 模式是否与第07章一致。
 
 常见异常定位：
@@ -264,12 +295,14 @@ MX_USART3_UART_Init()
 ```text
 1. .ioc 是否保留 PA13/PA14 Serial_Wire
 2. HAL_MspInit() 是否先启用 AFIO 时钟
-3. SWJ_CFG 是否选择 NOJTAG 而不是 DISABLE
-4. .ioc 中 USART3 是否选择 PC10/PC11
-5. usart.c 是否配置 PC10/PC11 GPIO 模式
-6. usart.c 是否调用 USART3 partial remap
-7. PB10/PB11 是否同时承担 I2C2，避免 USART3 默认映射冲突
-8. ST-LINK/串口工具/外部线序是否有实测证据【待验证】
+3. RCC->APB2ENR.AFIOEN 是否已经置位
+4. SWJ_CFG[2:0] 是否选择 NOJTAG 而不是 DISABLE
+5. .ioc 中 USART3 是否选择 PC10/PC11
+6. usart.c 是否配置 PC10/PC11 GPIO 模式
+7. usart.c 是否调用 USART3 partial remap
+8. USART3_REMAP[1:0] 是否为 partial remap
+9. PB10/PB11 是否同时承担 I2C2，避免 USART3 默认映射冲突
+10. ST-LINK/串口工具/外部线序是否有实测证据【待验证】
 ```
 
 本章的证据边界是：`.ioc` 和生成代码可以证明 PA13/PA14 被保留为串行调试接口。
@@ -324,9 +357,22 @@ AFIO 是 STM32F1 系列里理解引脚复用和调试口占用的重要前置。
 
 ### 7. 为什么不使用 USART3 完全重映射？
 
-完全重映射把 USART3_TX/RX 放到 PD8/PD9。当前 `.ioc` 的 LQFP64 项目引脚清单使用 PD0/PD1 作为 HSE，并没有采用 PD8/PD9 这条 USART3 路线。
+完全重映射把 USART3_TX/RX 放到 PD8/PD9。当前 `.ioc` 目标为
+`STM32F103RCTx` 和 `LQFP64`，而 ST 数据手册封装引脚表没有把 PD8/PD9
+作为 LQFP64 的可用普通引脚列出。当前 `.ioc` 也只使用 PD0/PD1 作为 HSE，
+没有 PD8/PD9 这条 USART3 路线。
 
-因此，从当前工程证据看，PC10/PC11 的部分重映射比 PD8/PD9 完全重映射更符合项目引脚分配。
+因此，从当前工程证据和封装边界看，PC10/PC11 的部分重映射比 PD8/PD9
+完全重映射更符合项目引脚分配。
+
+### 8. 为什么不能用 `AFIO->MAPR = 某个常量` 快速配置？
+
+因为 `AFIO->MAPR` 同时承载 USART、TIM、CAN、PD0/PD1、SWJ 等多类映射位。
+本章只关心 USART3 和 SWJ，但项目中其它章节还会依赖定时器、USB、时钟和调试资源。
+
+如果直接整寄存器赋值，可能在配置 USART3 的同时改掉 `SWJ_CFG` 或其它外设映射。
+HAL 的重映射宏采用掩码读改写，就是为了只修改目标位域。教材允许读者理解这些位域，
+但不建议把演示代码改成手写 `AFIO->MAPR` 常量。
 
 ## 11. 实践任务
 
@@ -349,6 +395,22 @@ AFIO 是 STM32F1 系列里理解引脚复用和调试口占用的重要前置。
 标出 ST-LINK 连线、目标板供电、串口转接器和 PC 端工具配置。
 验收依据是记录表把仓库内证据和仓库外实测【待验证】项分成不同栏位。
 
+任务四：计算 AFIO 位域目标值。
+
+从 CMSIS 头文件中找出 `AFIO_MAPR_USART3_REMAP_Pos`、
+`AFIO_MAPR_USART3_REMAP_PARTIALREMAP`、`AFIO_MAPR_SWJ_CFG_JTAGDISABLE`
+和 `RCC_APB2ENR_AFIOEN`。
+验收依据是能写出 USART3 partial remap 对应 `AFIO->MAPR[5:4] = 01b`，
+NOJTAG 对应 `AFIO->MAPR[26:24]` 中的 JTAG disable 语义，
+AFIO 时钟对应 `RCC->APB2ENR[0] = 1`。
+
+任务五：核对封装边界。
+
+在 `.ioc` 中确认 `Mcu.CPN=STM32F103RCT6`、`Mcu.Package=LQFP64`，
+再结合 ST 数据手册封装引脚表说明为什么 PD8/PD9 full remap
+不能作为当前项目的等价路线。
+验收依据是说明中同时引用工程配置证据和数据手册封装证据。
+
 ## 12. 思考题
 
 1. 为什么 PA13/PA14 不应在本项目中被随意改成普通 GPIO？
@@ -360,6 +422,7 @@ AFIO 是 STM32F1 系列里理解引脚复用和调试口占用的重要前置。
 7. 如果 USART3 不做 partial remap，会和项目中的哪个外设引脚分配产生冲突？
 8. 为什么直接覆盖写 `AFIO->MAPR` 比调用 HAL 生成宏更容易引入调试口或其它重映射问题？
 9. 为什么 `NOJTAG` 比 `DISABLE` 更适合保留开发阶段的调试能力？
+10. 为什么 `STM32F103RCTx + LQFP64` 会影响 USART3 full remap 是否能作为备选方案？
 
 ## 13. 本章总结
 
@@ -373,7 +436,10 @@ AFIO 是 STM32F1 系列里理解引脚复用和调试口占用的重要前置。
 - `HAL_UART_MspInit()` 调用 `__HAL_AFIO_REMAP_USART3_PARTIAL()`。
 - USART3 默认映射会占用 PB10/PB11，与项目 I2C2 路线冲突。
 - USART3 部分重映射对应 PC10/PC11，是当前工程采用的路线。
+- USART3 full remap 对应 PD8/PD9，但当前目标封装 LQFP64 不把它作为等价可用路线。
 - `NOJTAG` 表示 JTAG-DP Disabled、SW-DP Enabled，不等于完全关闭调试接口。
+- AFIO 时钟来自 `RCC->APB2ENR.AFIOEN`，`USART3_REMAP` 和 `SWJ_CFG`
+  都落在 `AFIO->MAPR`，不能用整寄存器常量随意覆盖。
 - 本章只建立引脚重映射和调试保留前提，UART 输出和 ST-LINK 调试配置留到后续章节。
 
 本章边界：
@@ -404,7 +470,14 @@ AFIO 是 STM32F1 系列里理解引脚复用和调试口占用的重要前置。
 - `Three-axis_cloud_platformV2.ioc`
 - `Three-axis_cloud_platformV2 Debug.launch`
 - `Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_gpio_ex.h`
+- `Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_rcc.h`
 - `Drivers/CMSIS/Device/ST/STM32F1xx/Include/stm32f103xe.h`
+
+外部权威资料：
+
+- ST RM0008 Reference manual: `https://www.st.com/resource/en/reference_manual/rm0008-stm32f101xx-stm32f102xx-stm32f103xx-stm32f105xx-and-stm32f107xx-advanced-armbased-32bit-mcus-stmicroelectronics.pdf`
+- ST DS5792 Datasheet for STM32F103xC/xD/xE: `https://www.st.com/resource/en/datasheet/stm32f103rc.pdf`
+- ST STM32F103 documentation page: `https://www.st.com/en/microcontrollers-microprocessors/stm32f103/documentation.html`
 
 符号、函数与配置项证据：
 
@@ -428,13 +501,19 @@ AFIO 是 STM32F1 系列里理解引脚复用和调试口占用的重要前置。
 - `AFIO_REMAP_PARTIAL`
 - `AFIO_DBGAFR_CONFIG`
 - `AFIO_MAPR_USART3_REMAP_Msk`
+- `AFIO_MAPR_USART3_REMAP_Pos`
 - `AFIO_MAPR_USART3_REMAP_NOREMAP`
 - `AFIO_MAPR_USART3_REMAP_PARTIALREMAP`
 - `AFIO_MAPR_USART3_REMAP_FULLREMAP`
 - `AFIO_MAPR_SWJ_CFG_Msk`
+- `AFIO_MAPR_SWJ_CFG_Pos`
 - `AFIO_MAPR_SWJ_CFG_RESET`
 - `AFIO_MAPR_SWJ_CFG_JTAGDISABLE`
 - `AFIO_MAPR_SWJ_CFG_DISABLE`
+- `RCC->APB2ENR`
+- `RCC_APB2ENR_AFIOEN`
+- `Mcu.CPN=STM32F103RCT6`
+- `Mcu.Package=LQFP64`
 - `PB10`
 - `PB11`
 - `PD8`

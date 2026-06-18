@@ -47,6 +47,8 @@
 - 忙等：CPU 在循环中反复读取条件，直到条件满足才继续执行；`DWT_Delay_us()` 属于这类等待。
 - 计数回绕：固定宽度计数器超过最大值后从 0 重新开始，DWT 的 `CYCCNT` 是 32 位计数器。
 - `SystemCoreClock`：核心时钟频率，`DWT_Delay_us()` 用它把微秒换算成周期数。
+- 时间戳回绕：`micros()` 返回 `uint32_t` 微秒时间戳，超过 32 位范围后会回绕。
+- 整数换算误差：`DWT_Delay_us()` 使用 `SystemCoreClock / 1000000` 的整数结果，若核心频率不是 1MHz 的整数倍，会产生截断误差。
 
 这些概念服务于正式知识点 `DWT周期计数器`，不新增结构外知识点。
 
@@ -77,6 +79,18 @@ timestamp_us = HAL_GetTick() * 1000 + elapsed_us_in_current_ms
 
 如果两次毫秒数不同，说明读取过程中发生了 SysTick 更新，函数使用新的毫秒数和新的倒计数值。如果两次毫秒数相同，说明仍在同一个毫秒周期内，函数使用第一次读到的倒计数值。这样可以降低跨边界读取造成的时间戳跳变风险。
 
+由于返回类型是 `uint32_t`，`micros()` 的微秒时间戳会按 32 位无符号数回绕：
+
+```text
+T_micros_wrap = 2^32 us = 4294967296 us
+              ≈ 4294.967 s
+              ≈ 71.58 min
+```
+
+这不等于程序只能运行 71.58 分钟。项目计算 `deltaTime500Hz = currentTime - previous500HzTime`
+时使用无符号差值，只要两次采样间隔远小于回绕周期，就可以跨过一次回绕仍得到正确短时间差。
+但教材不能把 `micros()` 返回值写成无限单调增长的绝对时间。
+
 第二条路径是 DWT 周期等待。
 
 `DWT_Delay_us()` 先记录当前 `DWT->CYCCNT`，再根据 `SystemCoreClock / 1000000` 把目标微秒数换算成 CPU 周期数。随后它循环读取当前 `DWT->CYCCNT`，直到当前计数与起始计数之差达到目标周期数。
@@ -88,6 +102,10 @@ cycles_per_us = SystemCoreClock / 1000000 = 72
 DWT_Delay_us(1000) -> ticks = 1000 * 72 = 72000 cycles
 ```
 
+这里 `SystemCoreClock / 1000000` 是整数除法。当前 72MHz 正好能整除 1MHz，
+所以 `cycles_per_us = 72` 没有除法截断。若后续项目改为不能整除 1MHz
+的核心频率，这个写法会把每微秒周期数向下取整，等待时间将出现系统性偏短风险。
+
 `DWT->CYCCNT` 是 32 位计数器。若按 72MHz 连续递增，理论回绕时间约为：
 
 ```text
@@ -97,6 +115,18 @@ T_wrap = 2^32 / 72000000 ≈ 59.65 s
 项目当前调用的是 1000us 级短等待，远小于回绕周期。代码使用无符号差值
 `DWT->CYCCNT - start`，对短等待跨过一次计数边界的情况也更稳健。
 但它没有超时退出，也没有检查乘法溢出，因此不适合直接扩展为长时间等待接口。
+
+乘法溢出边界也可以估算：
+
+```text
+ticks = us * 72
+uint32_t 最大值 = 4294967295
+us_max_no_overflow = floor(4294967295 / 72) = 59652323 us
+                   ≈ 59.65 s
+```
+
+这只是算术不溢出的上限，不是推荐等待这么久。忙等 59s 会让 CPU 长时间不能执行主循环普通任务，
+对实时系统几乎不可接受。
 
 这条路径的前提是 DWT 周期计数器必须已经运行。项目在 `main.c` 用户初始化段中执行：
 
@@ -115,6 +145,15 @@ T_wrap = 2^32 / 72000000 ≈ 59.65 s
 - `CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk`
 - `DWT->CYCCNT = 0`
 - `DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk`
+
+对应到 CMSIS 位级定义：
+
+| 寄存器/位 | 位号 | 项目动作 | 含义 |
+| --- | --- | --- | --- |
+| `CoreDebug->DEMCR.TRCENA` | 24 | 置 1 | 打开跟踪资源访问前提 |
+| `DWT->CYCCNT` | 32 位计数寄存器 | 写 0 | 清空周期计数观察起点 |
+| `DWT->CTRL.CYCCNTENA` | 0 | 置 1 | 允许 `CYCCNT` 随核心周期递增 |
+| `DWT->CTRL.NOCYCCNT` | 25 | 当前未检查 | 能力标志，1 表示无周期计数器 |
 
 `Drivers/CMSIS/Include/core_cm3.h` 提供了这些符号的定义：
 
@@ -204,6 +243,10 @@ TIM6 的配置意义留到第13章继续判断。
 如果 SysTick 被暂停、`HAL_IncTick()` 不运行，或者 `SysTick->LOAD` 与实际核心时钟不匹配，
 `micros()` 的返回值就不能再被当作可靠的微秒时间戳。
 
+`micros()` 内部表达式 `HAL_GetTick() * 1000` 也在 `uint32_t` 范围内运行。
+因此它的返回值本质上是“32 位微秒计数模 2^32”的时间戳。适合计算相邻帧
+和短代码段耗时，不适合直接当作长时间运行的绝对时间记录。
+
 项目在两个位置使用这类时间戳：
 
 - `SysTick_Handler()` 中计算 `deltaTime1000Hz` 和 `executionTime1000Hz`。
@@ -222,6 +265,8 @@ TIM6 的配置意义留到第13章继续判断。
 1. 忙等期间 CPU 被占用，不能执行主循环中的其他普通任务。
 2. 中断仍可能打断忙等，因此实际墙钟时间可能大于目标等待时间。
 3. `ticks = us * (SystemCoreClock / 1000000)` 对大 `us` 存在乘法溢出风险。
+4. `SystemCoreClock / 1000000` 使用整数除法，核心频率不是 1MHz 整数倍时会向下取整。
+5. 没有检查 `DWT_CTRL_NOCYCCNT_Msk`，也没有超时逃生路径，初始化失败时可能卡在循环中。
 
 所以本项目把它用于 1000us 级采样间隔是相对合理的短等待用法；
 若要等待毫秒到秒级时间，应优先考虑 HAL tick、定时器事件或状态机，而不是长时间 DWT 忙等。
@@ -268,7 +313,9 @@ TIM6 的配置意义留到第13章继续判断。
 - `DWT->CYCCNT` 是否在启用前被清零。
 - `DWT->CTRL` 是否设置周期计数使能位。
 - `DWT->CTRL & DWT_CTRL_NOCYCCNT_Msk` 是否为 0，用于确认周期计数能力。
+- `DWT->CYCCNT` 是否在运行状态下持续递增，且暂停断点时是否被调试器停止或扰动。
 - `DWT_Delay_us()` 中 `ticks` 是否由 `SystemCoreClock / 1000000` 换算得到。
+- `SystemCoreClock` 是否为 72MHz，确认 `cycles_per_us = 72` 是当前项目成立的换算。
 - `micros()` 是否读取 `HAL_GetTick()`、`SysTick->VAL` 和 `SysTick->LOAD`。
 - `SysTick->LOAD + 1` 是否与当前 `SystemCoreClock / 1000` 匹配。
 - `mpu6050Calibration.c` 中两段采样循环是否调用 `DWT_Delay_us(sampleRate)`。
@@ -279,7 +326,9 @@ TIM6 的配置意义留到第13章继续判断。
 
 - `DWT_Delay_us()` 卡住：先检查 DWT 启用代码是否执行，再检查 `DWT->CYCCNT` 是否在增长。
 - 微秒延时明显不准：先检查 `SystemCoreClock` 是否已经由系统时钟配置更新，再检查 `us * (SystemCoreClock / 1000000)` 的换算。
+- 更换系统时钟后延时偏短：检查 `SystemCoreClock / 1000000` 是否出现整数截断，必要时应改用更精确的换算方式。
 - `micros()` 时间戳异常：先检查 `HAL_GetTick()` 是否推进，再检查 SysTick 1ms 配置和 `SysTick->VAL/LOAD` 读取。
+- 长时间运行后时间戳变小：检查是否遇到 `uint32_t` 微秒回绕，优先用无符号差值分析短时间间隔。
 - 500Hz `dt500Hz` 抖动：先确认 `frame_500Hz` 由第09章的 SysTick 标志触发，再检查 `micros()` 时间差计算；控制算法本身留到后续章节。
 - 标定采样间隔异常：先确认 `DWT_Delay_us()` 的调用位置，再进入后续标定章节分析采样逻辑。
 - TIM6 相关误判：若只看到 `MX_TIM6_Init()` 或清零 `CNT`，不能直接得出 TIM6 正在提供微秒时基。
@@ -362,6 +411,21 @@ SysTick 提供连续时基，DWT 负责短时间等待。
 对于毫秒级以上任务、可并行等待、低频状态机或需要响应其他事件的场景，
 应优先考虑 HAL tick、定时器中断、状态机或调度器。
 
+### 9. `micros()` 回绕后，500Hz 时间差会不会立刻错误？
+
+不一定。当前代码用 `uint32_t` 做 `currentTime - previous500HzTime`。
+在 C 语言无符号整数规则下，这个差值按模 2^32 计算。只要两次时间戳之间的真实间隔远小于
+`2^32 us`，跨过一次回绕仍能得到正确的短间隔。
+
+风险在于把 `micros()` 当作绝对时间排序，或把两个相隔很久的时间戳直接比较大小。
+对本项目 500Hz 邻近帧间隔而言，回绕不是主要风险；主循环超时、I2C 阻塞和中断延迟更需要后续实测。
+
+### 10. 为什么 `DWT_Delay_us()` 的 1000us 不是严格采样周期？
+
+因为它只覆盖循环中的等待段。一次采样还包括 MPU6050 I2C 读取、温度补偿、累加和循环控制。
+中断也可能在忙等期间插入执行。因此 `DWT_Delay_us(1000)` 更准确的说法是
+“每次循环末尾至少插入一个目标 1000us 的忙等窗口”，不是“整个采样循环严格 1000us”。
+
 ## 11. 实践任务
 
 开始任务前，先回到本章第8节定位 DWT 启用、`micros()` 和 `DWT_Delay_us()` 证据；第9节提供微秒时间基准调试顺序。
@@ -409,6 +473,18 @@ SysTick 提供连续时基，DWT 负责短时间等待。
 画出“微秒时间戳路径”和“DWT 微秒等待路径”两条证据链。
 验收依据是双链图分列时间戳路径、等待路径和各自证据位置。
 
+任务九：计算回绕和溢出边界。
+
+计算 `micros()` 的 32 位微秒回绕时间、`DWT->CYCCNT` 在 72MHz 下的回绕时间，
+以及 `DWT_Delay_us()` 在 `ticks = us * 72` 下的最大不溢出 `us`。
+验收依据是计算表包含公式、数值、单位和工程结论。
+
+任务十：核查整数除法误差。
+
+说明为什么 72MHz 下 `SystemCoreClock / 1000000 = 72` 没有截断误差，
+并讨论如果核心时钟改成不能被 1MHz 整除的频率，`DWT_Delay_us()` 会怎样偏差。
+验收依据是能区分“当前项目成立”和“移植后需要重新审查”。
+
 实践边界：
 
 当前任务优先形成表格、链路图、搜索记录和计算过程。涉及 IDE 现场、构建日志、断点数值、外部波形、主机侧结果或硬件响应时，若没有截图、日志或仓库外实测证据，结论保持【待验证】。
@@ -421,6 +497,9 @@ SysTick 提供连续时基，DWT 负责短时间等待。
 4. 为什么 `micros()` 需要连续读取两次 `HAL_GetTick()` 和 `SysTick->VAL`？
 5. 为什么第10章只讲采样等待，不展开 MPU6050 标定计算？
 6. `micros()` 返回值看起来连续时，还需要哪些证据才能判断它足够支撑 500Hz 控制周期分析？
+7. 为什么 `micros()` 的返回值可以回绕，但相邻帧差值仍可能是正确的？
+8. 为什么 `SystemCoreClock / 1000000` 是一个移植风险点？
+9. 如果 `DWT_CTRL_NOCYCCNT_Msk` 为 1，`DWT_Delay_us()` 的当前实现会有什么风险？
 
 ## 13. 本章总结
 
@@ -434,6 +513,8 @@ SysTick 提供连续时基，DWT 负责短时间等待。
 - `DWT_Delay_us()` 使用 `DWT->CYCCNT` 和 `SystemCoreClock` 实现微秒级等待。
 - 72MHz 下 `DWT_Delay_us(1000)` 的目标等待量为 72000 个 CPU 周期。
 - 32 位 `DWT->CYCCNT` 在 72MHz 下理论回绕时间约为 59.65s。
+- `micros()` 的 32 位微秒时间戳约每 71.58min 回绕一次，短间隔应使用无符号差值理解。
+- `DWT_Delay_us()` 当前使用整数除法和 32 位乘法，1000us 调用安全，但长等待和移植时钟需要重新审查。
 - `mpu6050Calibration.c` 在温度补偿采样中使用 `DWT_Delay_us(sampleRate)`。
 - `mpu6050.c` 在静态零偏采样中使用 `DWT_Delay_us(1000)`。
 - TIM6 在当前仓库中有初始化和清零证据，但没有成为本章两条微秒路径的有效来源。
@@ -472,14 +553,25 @@ SysTick 提供连续时基，DWT 负责短时间等待。
 - `Three-axis_cloud_platformV2.ioc`
 - `Drivers/CMSIS/Include/core_cm3.h`
 
+外部权威资料：
+
+- ST RM0008 Reference manual: `https://www.st.com/resource/en/reference_manual/rm0008-stm32f101xx-stm32f102xx-stm32f103xx-stm32f105xx-and-stm32f107xx-advanced-armbased-32bit-mcus-stmicroelectronics.pdf`
+- ST DS5792 Datasheet for STM32F103xC/xD/xE: `https://www.st.com/resource/en/datasheet/stm32f103rc.pdf`
+- ST STM32F103 documentation page: `https://www.st.com/en/microcontrollers-microprocessors/stm32f103/documentation.html`
+
 符号、函数与配置项证据：
 
 - `CoreDebug->DEMCR`
+- `CoreDebug_DEMCR_TRCENA_Pos`
 - `CoreDebug_DEMCR_TRCENA_Msk`
 - `DWT->CYCCNT`
 - `DWT->CTRL`
+- `DWT_CTRL_CYCCNTENA_Pos`
 - `DWT_CTRL_CYCCNTENA_Msk`
+- `DWT_CTRL_NOCYCCNT_Pos`
 - `DWT_CTRL_NOCYCCNT_Msk`
+- `DWT_BASE`
+- `CoreDebug_BASE`
 - `SystemCoreClock`
 - `micros()`
 - `HAL_GetTick()`

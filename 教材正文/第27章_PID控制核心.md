@@ -733,6 +733,39 @@ updatePID()      -> 位置式 PID 输出
 computeMotor...  -> 对输出再做限幅和速率约束
 ```
 
+复查输出速率约束时，还要单独检查 `rateLimit` 的单位语义。当前
+`config.c` 中默认：
+
+```text
+eepromConfig.rateLimit = 45.0f * D2R
+```
+
+如果把这个字段按变量名理解为“每秒允许变化的弧度量”，Roll 后续 PID 分支的写法是匹配的：
+
+```text
+rollStepLimit = eepromConfig.rateLimit * safeDt
+```
+
+在 500Hz、`safeDt ~= 0.002s` 时，默认每帧步长约为：
+
+```text
+45 deg/s * 0.002 s = 0.09 deg/frame ~= 0.00157 rad/frame
+```
+
+但 Pitch/Yaw 分支当前直接比较：
+
+```text
+outputRate[axis] = pidCmd[axis] - pidCmdPrev[axis]
+if outputRate[axis] > eepromConfig.rateLimit:
+    pidCmd[axis] = pidCmdPrev[axis] + eepromConfig.rateLimit
+```
+
+这等价于把同一个 `rateLimit` 当作“每帧最大变化量”使用。按默认值计算，
+Pitch/Yaw 每帧允许变化约 `45 deg/frame`，而 Roll 后续 PID 分支约
+`0.09 deg/frame`。教材不能仅凭这段源码断言它一定是错误实现，因为不同轴可能有调试阶段的临时意图；
+但必须把它记录为输出速率限制的单位边界：同一配置字段在不同轴上呈现了
+“乘以 `dt`”和“不乘以 `dt`”两种语义，需要日志、实物响应或设计意图确认【待验证】。
+
 ### 8.14 非LQR/MPC架构证据
 
 如果一个项目采用 LQR，通常会看到状态向量、系统矩阵、反馈增益矩阵或类似
@@ -906,6 +939,8 @@ output = P * error + I * iTerm + D * dAverage
 
 - 在 `updatePID()` 返回处观察 `output`。
 - 在 `computeMotorCommands()` 中观察 `pidCmd[PITCH]`、`pidCmd[YAW]` 和进入 Roll PID 分支后的 `pidCmd[ROLL]`。
+- 同时记录 `pidCmdPrev[]`、`outputRate[]`、`eepromConfig.rateLimit`、`dt` 或 `safeDt`。
+- 分别确认 Roll 后续 PID 分支是否使用 `rateLimit * safeDt`，Pitch/Yaw 是否直接使用 `rateLimit`。
 - 如果 PID 输出正常但电机输出异常，后续应进入电角转换、限幅和 PWM 输出章节，而不是只改 P/I/D 参数。
 
 第七步，拆分 P/I/D 三项贡献。
@@ -950,6 +985,7 @@ D 项看 `deltaT`、噪声和 D 项历史状态。
 - 如果要分析 `B`，必须先确认该轴是否进入 `OTHER` 分支；当前三轴 `ANGULAR` 分支下 `B` 不参与输出。
 - 如果要分析 `D_STATE`，必须先确认当前轴已经切换到该分支；当前三轴默认 `D_ERROR`。
 - 角度包裹调试应同时记录输入值、包裹函数、输出值和是否存在多圈输入。
+- 输出速率限制记录应同时包含 `pidCmdPrev[]`、`outputRate[]`、`rateLimit`、`dt/safeDt` 和最终应用的 `pidCmd[]`，避免把“每秒速率”和“每帧步长”混为一谈。
 - PID 输出只证明控制量计算结果，不能直接证明电机方向、稳定性或安全性。
 
 调试边界：
@@ -1069,6 +1105,15 @@ Roll 后续 PID 分支在电角误差过大时可能把全局 `holdIntegrators` 
 系统安全还取决于 PID 输出限幅、输出速率限制、电角映射、PWM 下发、
 电机负载、供电和机械结构。缺少硬件记录时只能写成数值防护，不能写成安全证明。
 
+问题二十：同一个 `rateLimit` 字段在三轴输出速率限制中是否一定具有相同单位语义。
+
+不能直接这样假设。
+Roll 后续 PID 分支把 `eepromConfig.rateLimit` 乘以 `safeDt` 后作为单帧步长；
+Pitch/Yaw 分支则直接把 `pidCmd - pidCmdPrev` 与 `eepromConfig.rateLimit` 比较。
+因此 Roll 的写法更像“每秒速率转换为每帧步长”，Pitch/Yaw 的写法更像“每帧最大变化量”。
+这不属于 `updatePID()` 本体，而是 PID 后级输出约束；是否为有意的轴差异或遗留实现，
+必须结合设计意图和实测日志确认【待验证】。
+
 ## 11. 实践任务
 
 开始任务前，先回到本章第8节定位 `initPID()`、PID 参数来源、`updatePID()` 输入、P/I/D 输出和三轴分支入口；第9节提供 PID 调试顺序。
@@ -1171,6 +1216,16 @@ Roll 后续 PID 分支在电角误差过大时可能把全局 `holdIntegrators` 
 验收依据是能说明 `lastDcalcValue == 0.0f` 的初始化边界、
 `[-300, 300]` 的 D 项限幅，以及 NaN/Inf 置零只属于数值防护。
 
+任务十七：验证输出速率限制的单位语义。
+
+分别记录 Roll 后续 PID 分支、Pitch 分支和 Yaw 分支中的
+`pidCmdPrev[]`、`pidCmd[]`、`outputRate[]`、`eepromConfig.rateLimit`
+以及 `dt/safeDt`。
+对 Roll 计算 `rateLimit * safeDt`，对 Pitch/Yaw 记录直接比较 `rateLimit`
+时的单帧允许变化量。
+验收依据是表格能说明同一 `rateLimit` 字段在不同轴上是按“每秒速率”还是“每帧步长”生效，
+并把没有设计意图或硬件日志支持的结论标为【待验证】。
+
 实践边界：
 
 当前任务优先形成表格、链路图、搜索记录和计算过程。涉及 IDE 现场、构建日志、断点数值、外部波形、主机侧结果或硬件响应时，若没有截图、日志或仓库外实测证据，结论保持【待验证】。
@@ -1198,6 +1253,7 @@ Roll 后续 PID 分支在电角误差过大时可能把全局 `holdIntegrators` 
 19. 为什么 Roll 分支中的 `holdIntegrators` 可能影响同一帧后续 Pitch/Yaw 的积分暂停。
 20. 为什么用 `0.0f` 作为 D 项历史初始化哨兵会带来边界歧义。
 21. 为什么 D 项和输出的 NaN/Inf 防护只能证明数值被兜底，不能证明闭环稳定。
+22. 为什么同一个 `rateLimit` 字段在 Roll 与 Pitch/Yaw 中是否乘以 `dt`，会影响你对“速率限制”的工程判断。
 
 ## 13. 本章总结
 
@@ -1223,13 +1279,14 @@ Roll 后续 PID 分支在电角误差过大时可能把全局 `holdIntegrators` 
 - `lastDcalcValue == 0.0f` 同时承担初始化判断和值存储角色，存在 D 项哨兵值边界。
 - 原始 `dTerm` 会被限制到 `[-300, 300]`，最终输出 NaN/Inf 会被置 0。
 - 当前 `updatePID()` 是位置式离散 PID，不是增量式 PID。
+- `pidCmdPrev[]` 和 `outputRate[]` 是 PID 后级输出约束，其中 Roll 后续 PID 分支使用 `rateLimit * safeDt`，Pitch/Yaw 当前直接使用 `rateLimit`，存在单位语义边界【待验证】。
 - 当前控制链路是姿态反馈闭环，不是开环固定输出。
 - 当前仓库没有 LQR/MPC 所需的模型、矩阵、预测时域或优化求解器证据。
 - Pitch 和 Yaw 在轴使能时进入 PID 调用。
 - Roll 的 PID 调用受 `return_state_roll` 状态分支影响，不能写成无条件每帧同样调用。
 - `zeroPIDintegralError()` 和 `zeroPIDstates()` 在 AHRS 收敛后用于清空 PID 历史状态。
 
-本章保留十个边界：
+本章保留十一个边界：
 
 - D 项滤波、目标角斜坡、输出限幅和积分抗饱和留到第28章展开。
 - 机械角到电角转换和三相 PWM 输出留到后续电机章节展开。
@@ -1239,6 +1296,7 @@ Roll 后续 PID 分支在电角误差过大时可能把全局 `holdIntegrators` 
 - `holdIntegrators` 的同帧跨轴影响需要轴使能、Roll 分支状态和实测日志共同确认【待验证】。
 - `lastDcalcValue == 0.0f` 的哨兵值写法不能替代独立初始化有效标志。
 - `pidCmdPrev[]` 和 `outputRate[]` 属于 PID 后级输出约束，不改变 `updatePID()` 的位置式 PID 属性。
+- 同一 `rateLimit` 字段在 Roll 与 Pitch/Yaw 输出速率限制中的 `dt` 使用方式不同，是否为有意轴差异需要设计意图或实测日志确认【待验证】。
 - LQR/MPC 只能作为未来架构迁移讨论，不能写成当前项目采用的控制方法。
 - 当前仓库能证明公式分支和变量状态，不能单独证明闭环稳定性；稳定性仍需硬件日志或测试记录【待验证】。
 
