@@ -41,8 +41,11 @@
 - `CYCCNT`：DWT 中的 CPU 周期计数寄存器。
 - `CoreDebug->DEMCR`：CoreDebug 调试异常与监控控制寄存器，本项目通过设置跟踪使能位，为 DWT 周期计数打开前置条件。
 - `DWT_CTRL_CYCCNTENA_Msk`：CMSIS 中用于启用 `CYCCNT` 的位掩码。
+- `DWT_CTRL_NOCYCCNT_Msk`：CMSIS 中表示该实现不支持周期计数器的能力标志，可作为健壮性检查点。
 - 微秒时间戳：用于记录某个时刻的微秒级数值，本项目由 `micros()` 返回。
 - 微秒级等待：让代码等待指定微秒数，本项目由 `DWT_Delay_us()` 实现。
+- 忙等：CPU 在循环中反复读取条件，直到条件满足才继续执行；`DWT_Delay_us()` 属于这类等待。
+- 计数回绕：固定宽度计数器超过最大值后从 0 重新开始，DWT 的 `CYCCNT` 是 32 位计数器。
 - `SystemCoreClock`：核心时钟频率，`DWT_Delay_us()` 用它把微秒换算成周期数。
 
 这些概念服务于正式知识点 `DWT周期计数器`，不新增结构外知识点。
@@ -57,6 +60,19 @@
 
 `SysTick->LOAD + 1` 表示 1ms 内总计数长度。
 
+因此，`micros()` 的核心换算可以写成：
+
+```text
+tms = SysTick->LOAD + 1
+elapsed_us_in_current_ms = ((tms - SysTick->VAL) * 1000) / tms
+timestamp_us = HAL_GetTick() * 1000 + elapsed_us_in_current_ms
+```
+
+在项目 72MHz、1ms SysTick 配置下，`tms` 期望为 `72000`。
+1us 对应约 `72000000 / 1000000 = 72` 个核心时钟计数。
+由于函数返回 `uint32_t` 微秒整数，除法结果会截断小于 1us 的分数部分；
+它适合项目当前的微秒级时间差观察，但不是纳秒级或周期级测量函数。
+
 `micros()` 先读取一次毫秒数和 SysTick 倒计数，再读取第二次，用两次毫秒数判断是否刚好跨过 tick 边界。
 
 如果两次毫秒数不同，说明读取过程中发生了 SysTick 更新，函数使用新的毫秒数和新的倒计数值。如果两次毫秒数相同，说明仍在同一个毫秒周期内，函数使用第一次读到的倒计数值。这样可以降低跨边界读取造成的时间戳跳变风险。
@@ -64,6 +80,23 @@
 第二条路径是 DWT 周期等待。
 
 `DWT_Delay_us()` 先记录当前 `DWT->CYCCNT`，再根据 `SystemCoreClock / 1000000` 把目标微秒数换算成 CPU 周期数。随后它循环读取当前 `DWT->CYCCNT`，直到当前计数与起始计数之差达到目标周期数。
+
+在当前 72MHz 核心时钟下：
+
+```text
+cycles_per_us = SystemCoreClock / 1000000 = 72
+DWT_Delay_us(1000) -> ticks = 1000 * 72 = 72000 cycles
+```
+
+`DWT->CYCCNT` 是 32 位计数器。若按 72MHz 连续递增，理论回绕时间约为：
+
+```text
+T_wrap = 2^32 / 72000000 ≈ 59.65 s
+```
+
+项目当前调用的是 1000us 级短等待，远小于回绕周期。代码使用无符号差值
+`DWT->CYCCNT - start`，对短等待跨过一次计数边界的情况也更稳健。
+但它没有超时退出，也没有检查乘法溢出，因此不适合直接扩展为长时间等待接口。
 
 这条路径的前提是 DWT 周期计数器必须已经运行。项目在 `main.c` 用户初始化段中执行：
 
@@ -88,9 +121,28 @@
 - `DWT_Type` 中包含 `CTRL` 和 `CYCCNT`。
 - `CoreDebug_Type` 中包含 `DEMCR`。
 - `DWT_CTRL_CYCCNTENA_Msk` 表示周期计数使能位。
+- `DWT_CTRL_NOCYCCNT_Msk` 表示没有周期计数器能力的标志位。
 - `CoreDebug_DEMCR_TRCENA_Msk` 表示跟踪资源使能位。
 
 `micros()` 虽然也返回微秒级时间戳，但它的直接寄存器来源是 `SysTick->VAL` 和 `SysTick->LOAD`，不是 `DWT->CYCCNT`。这一点必须和 `DWT_Delay_us()` 区分。
+
+更完整的工程化 DWT 初始化通常还会检查 `DWT->CTRL & DWT_CTRL_NOCYCCNT_Msk`，
+以判断当前内核实现是否真的提供周期计数器。当前项目代码没有做这一步，
+所以本章只能确认“项目按 Cortex-M3 DWT 路径启用了 `CYCCNT`”，不能把它写成已经经过运行时能力检查。
+
+项目还初始化了 TIM6：`.ioc` 中 TIM6 预分频值为 35，`tim.c` 中 `Period` 为 65535。
+在 APB1 定时器时钟 72MHz 条件下，若 TIM6 被启动，它的计数频率将是：
+
+```text
+f_tim6_cnt = 72000000 / (35 + 1) = 2000000 Hz
+T_tim6_cnt = 0.5 us
+T_tim6_overflow = 65536 / 2000000 ≈ 32.768 ms
+```
+
+但当前源码检索到的是 `MX_TIM6_Init()` 和 `__HAL_TIM_SET_COUNTER(&htim6, 0)`，
+没有看到项目业务代码调用 `HAL_TIM_Base_Start(&htim6)` 或读取 `__HAL_TIM_GET_COUNTER(&htim6)`。
+因此，第10章不能把 TIM6 作为当前 `micros()` 或 `DWT_Delay_us()` 的实际时间来源。
+TIM6 的配置意义留到第13章继续判断。
 
 ## 7. 项目中的应用
 
@@ -107,12 +159,22 @@
 文件之间的关系是：
 
 - `core_cm3.h` 提供 DWT、CoreDebug 和 SysTick 的 CMSIS 定义。
-- `main.c` 启用 DWT 周期计数器，并实现 `micros()`。
+- `main.c` 启用 DWT 周期计数器，实现 `micros()`，并初始化但未作为本章时间源使用 TIM6。
 - `mpu6050Calibration.c` 实现 `DWT_Delay_us()`，并在温度补偿采样中调用它。
 - `mpu6050Calibration.h` 声明 `DWT_Delay_us()`，使其他文件可以调用。
 - `mpu6050.c` 在静态零偏采样循环中调用 `DWT_Delay_us(1000)`。
+- `tim.c` 和 `.ioc` 提供 TIM6 配置证据，但当前不构成 `micros()` 或 `DWT_Delay_us()` 的来源证据。
 
-运行流程上，项目先完成 HAL、系统时钟、SysTick 和外设初始化，再启用 DWT 周期计数器。随后，`micros()` 可以用于计算 500Hz 周期时间差和执行耗时，`DWT_Delay_us()` 可以用于采样间隔等待。
+运行流程上，项目先完成 HAL、系统时钟、SysTick 和外设初始化，再启用 DWT 周期计数器。
+
+随后，`micros()` 可以计算 500Hz 周期时间差和执行耗时。
+
+`DWT_Delay_us()` 可以提供采样间隔等待。
+
+注意，项目中还存在 `sysTickUptime`、`sysTickCycleCounter`、`usTicks` 等时间相关变量。
+当前仓库能看到 `sysTickCycleCounter = DWT->CYCCNT` 处在 `stm32f1xx_it.c` 的块注释中，
+`usTicks` 也未构成本章两条微秒路径的有效来源。
+教材应以实际参与编译和调用的函数为准，而不是以变量名推断当前行为。
 
 ## 8. 代码分析
 
@@ -132,7 +194,15 @@
 
 函数的核心目标是把毫秒 tick 与当前毫秒内的 SysTick 倒计数位置合成微秒时间戳。它不是 DWT 周期计数函数。
 
-`stm32f1xx_it.c` 中还能看到一段已经被块注释包住的旧逻辑，其中提到读取 `DWT->CYCCNT` 给 `micros()` 使用。该段当前不参与编译，不能作为当前 `micros()` 实现的有效证据；本章以 `main.c` 中实际编译的 `micros()` 函数为准。
+`stm32f1xx_it.c` 中还能看到一段已经被块注释包住的旧逻辑，
+其中提到读取 `DWT->CYCCNT` 给 `micros()` 使用。
+该段当前不参与编译，不能作为当前 `micros()` 实现的有效证据；
+本章以 `main.c` 中实际编译的 `micros()` 函数为准。
+
+`micros()` 的精度边界也要讲清楚。它的最小输出单位是 1us，但内部使用整数除法，
+所以小于 1us 的周期余量会被截断。它还依赖 `HAL_GetTick()` 正常推进和 SysTick 配置保持 1ms。
+如果 SysTick 被暂停、`HAL_IncTick()` 不运行，或者 `SysTick->LOAD` 与实际核心时钟不匹配，
+`micros()` 的返回值就不能再被当作可靠的微秒时间戳。
 
 项目在两个位置使用这类时间戳：
 
@@ -147,17 +217,35 @@
 
 这段逻辑的输入是目标微秒数，输出不是一个返回值，而是“经过约定的等待时间后继续执行”。它的风险点是：如果 `DWT->CYCCNT` 没有运行，循环条件就可能一直不满足。
 
+它还有三个工程限制：
+
+1. 忙等期间 CPU 被占用，不能执行主循环中的其他普通任务。
+2. 中断仍可能打断忙等，因此实际墙钟时间可能大于目标等待时间。
+3. `ticks = us * (SystemCoreClock / 1000000)` 对大 `us` 存在乘法溢出风险。
+
+所以本项目把它用于 1000us 级采样间隔是相对合理的短等待用法；
+若要等待毫秒到秒级时间，应优先考虑 HAL tick、定时器事件或状态机，而不是长时间 DWT 忙等。
+
 ### 4. 温度补偿采样中的微秒等待
 
 `mpu6050Calibration.c` 中设置 `sampleRate = 1000`，并在冷机采样和热机采样循环中调用 `DWT_Delay_us(sampleRate)`。
 
 这里的项目含义是：温度补偿采样希望在连续读取之间插入约 1000us 的间隔。温度补偿算法本身属于后续传感器标定章节，本章只说明它使用 DWT 微秒等待。
 
+需要注意，`sampleRate = 1000` 在这里是等待参数，不是已经实测的采样频率。
+每次循环还包含 `MPU6050_Read_And_Process()`、数据累加和循环控制开销，
+所以 2000 次采样总时长必然大于纯等待时间 `2000 * 1000us = 2s`。
+实际采样周期仍需用日志、DWT 记录或外部测量验证【待验证】。
+
 ### 5. 静态零偏采样中的微秒等待
 
 `mpu6050.c` 的静态零偏采样循环中调用 `DWT_Delay_us(1000)`。该循环进行 5000 次采样，并在每次采样后等待约 1000us。
 
 本章不分析静态零偏如何计算，只确认：`DWT_Delay_us()` 已经从校准文件扩展为 MPU6050 采样流程中的公共微秒等待工具。
+
+同样，5000 次循环的最小等待时间约为 `5000 * 1000us = 5s`，
+但总耗时还要加上传感器读取、温度补偿计算和循环开销。
+因此本章只能说明“代码插入了 1000us 等待”，不能证明静态零偏采样总时长精确等于 5s。
 
 ### 6. CMSIS 头文件证据
 
@@ -179,10 +267,13 @@
 - `CoreDebug->DEMCR` 是否设置跟踪使能位。
 - `DWT->CYCCNT` 是否在启用前被清零。
 - `DWT->CTRL` 是否设置周期计数使能位。
+- `DWT->CTRL & DWT_CTRL_NOCYCCNT_Msk` 是否为 0，用于确认周期计数能力。
 - `DWT_Delay_us()` 中 `ticks` 是否由 `SystemCoreClock / 1000000` 换算得到。
 - `micros()` 是否读取 `HAL_GetTick()`、`SysTick->VAL` 和 `SysTick->LOAD`。
+- `SysTick->LOAD + 1` 是否与当前 `SystemCoreClock / 1000` 匹配。
 - `mpu6050Calibration.c` 中两段采样循环是否调用 `DWT_Delay_us(sampleRate)`。
 - `mpu6050.c` 中静态零偏采样是否调用 `DWT_Delay_us(1000)`。
+- TIM6 是否只是初始化和清零，还是存在启动、读取或中断消费证据。
 
 常见异常定位：
 
@@ -191,11 +282,14 @@
 - `micros()` 时间戳异常：先检查 `HAL_GetTick()` 是否推进，再检查 SysTick 1ms 配置和 `SysTick->VAL/LOAD` 读取。
 - 500Hz `dt500Hz` 抖动：先确认 `frame_500Hz` 由第09章的 SysTick 标志触发，再检查 `micros()` 时间差计算；控制算法本身留到后续章节。
 - 标定采样间隔异常：先确认 `DWT_Delay_us()` 的调用位置，再进入后续标定章节分析采样逻辑。
+- TIM6 相关误判：若只看到 `MX_TIM6_Init()` 或清零 `CNT`，不能直接得出 TIM6 正在提供微秒时基。
+- 调试器断点影响：在忙等循环、SysTick 或 500Hz 分支中断住程序，会改变观察到的时间差和采样间隔。
 
 调试记录建议：
 
 - 记录 DWT 启用语句、`DWT->CYCCNT` 清零与递增现象、`SystemCoreClock` 数值和微秒换算结果。
 - 分开记录 `micros()` 的时间戳路径和 `DWT_Delay_us()` 的忙等路径，避免把两类时间基准混为一个结论。
+- 对 TIM6 只记录初始化、计数器清零、启动函数、读取函数和中断入口是否存在，不用配置意图替代运行证据。
 - 对 500Hz 采样间隔，只记录本章能证明的时间基准证据；控制算法影响留到后续控制循环章节。
 - 若没有示波器、逻辑分析仪或连续日志，微秒延时精度和周期抖动只能标记为【待验证】。
 
@@ -243,11 +337,37 @@ SysTick 提供连续时基，DWT 负责短时间等待。
 本章只建立时间工具，不处理标定公式本身。
 如果把 DWT 的用法和标定算法混在一起，读者很难区分“等待间隔”与“数据计算”两条链路。
 
+### 6. TIM6 已经配置了，为什么本章不把它当作微秒时间基准？
+
+因为当前证据不足。`.ioc` 和 `tim.c` 能证明 TIM6 被配置，`main.c` 也清零了 `htim6` 计数器。
+但当前源码没有看到业务代码启动 TIM6、读取 TIM6 计数器或用 TIM6 中断更新微秒变量。
+
+因此第10章只能把 TIM6 作为“存在配置但未成为当前微秒路径”的边界证据。
+如果后续版本启用了 `HAL_TIM_Base_Start(&htim6)` 并用 `__HAL_TIM_GET_COUNTER(&htim6)` 生成时间戳，
+教材再把 TIM6 纳入微秒时间基准才有充分依据。
+
+### 7. `DWT_Delay_us(1000)` 是否意味着采样频率一定是 1000Hz？
+
+不能这样说。`DWT_Delay_us(1000)` 只保证循环中插入了目标 1000us 的等待。
+一次采样循环还包括 I2C 读取、数据处理、累加和循环控制开销。
+
+所以实际采样频率一定低于或等于由纯等待推导出的理想频率，
+具体数值需要连续时间戳、DWT 记录、逻辑分析仪或其他实测证据【待验证】。
+
+### 8. `DWT_Delay_us()` 可以替代所有延时吗？
+
+不适合。它是忙等，会占用 CPU；目标时间越长，浪费的执行时间越多。
+它适合短时间、初始化或采样间隔这类简单等待。
+
+对于毫秒级以上任务、可并行等待、低频状态机或需要响应其他事件的场景，
+应优先考虑 HAL tick、定时器中断、状态机或调度器。
+
 ## 11. 实践任务
 
 开始任务前，先回到本章第8节定位 DWT 启用、`micros()` 和 `DWT_Delay_us()` 证据；第9节提供微秒时间基准调试顺序。
 
-任务一至任务二属于 DWT 基础定位；任务三至任务六属于项目调用证据；任务七属于双路径综合整理。
+任务一至任务二属于 DWT 基础定位；任务三至任务六属于项目调用证据；
+任务七属于 TIM6 边界核查；任务八属于双路径综合整理。
 
 任务一：确认 DWT 与 CoreDebug 类型定义。
 
@@ -267,7 +387,7 @@ SysTick 提供连续时基，DWT 负责短时间等待。
 任务四：追踪 DWT 微秒等待实现。
 
 在 `mpu6050Calibration.c` 中找出 `DWT_Delay_us()` 的周期差判断。
-验收依据是等待表包含起始计数、当前计数、差值条件和结束条件。
+验收依据是等待表包含起始计数、当前计数、差值条件、结束条件、回绕风险和忙等影响。
 
 任务五：确认 DWT 延时声明。
 
@@ -277,9 +397,14 @@ SysTick 提供连续时基，DWT 负责短时间等待。
 任务六：确认 DWT 延时调用点。
 
 在 `mpu6050Calibration.c` 和 `mpu6050.c` 中分别找到 `DWT_Delay_us()` 的调用点。
-验收依据是调用表按文件分列标定延时、初始化延时和操作延时位置。
+验收依据是调用表按文件分列采样循环、等待参数、循环次数、理论最小等待时间和证据边界。
 
-任务七：画出两条微秒证据链。
+任务七：核查 TIM6 是否参与当前微秒路径。
+
+在 `.ioc`、`tim.c` 和 `main.c` 中记录 TIM6 的配置、清零、启动和读取证据。
+验收依据是边界表明确区分“TIM6 已配置”和“TIM6 当前未作为 `micros()` 或 `DWT_Delay_us()` 来源”。
+
+任务八：画出两条微秒证据链。
 
 画出“微秒时间戳路径”和“DWT 微秒等待路径”两条证据链。
 验收依据是双链图分列时间戳路径、等待路径和各自证据位置。
@@ -307,14 +432,19 @@ SysTick 提供连续时基，DWT 负责短时间等待。
 - `main.c` 启用 DWT 周期计数器。
 - `micros()` 使用 HAL tick 和 SysTick 当前计数位置生成微秒时间戳。
 - `DWT_Delay_us()` 使用 `DWT->CYCCNT` 和 `SystemCoreClock` 实现微秒级等待。
+- 72MHz 下 `DWT_Delay_us(1000)` 的目标等待量为 72000 个 CPU 周期。
+- 32 位 `DWT->CYCCNT` 在 72MHz 下理论回绕时间约为 59.65s。
 - `mpu6050Calibration.c` 在温度补偿采样中使用 `DWT_Delay_us(sampleRate)`。
 - `mpu6050.c` 在静态零偏采样中使用 `DWT_Delay_us(1000)`。
+- TIM6 在当前仓库中有初始化和清零证据，但没有成为本章两条微秒路径的有效来源。
 - 第10章只建立微秒时间基础，传感器标定、500Hz 实时控制循环和控制算法留到后续章节。
 
 本章边界：
 
 - `micros()` 与 `DWT_Delay_us()` 都属于时间工具，但分别服务时间戳和等待。
 - 本章不证明 500Hz 周期没有抖动或丢帧，只提供后续观测 `dt500Hz` 和执行时间的基础。
+- 本章不证明 1000us 等待对应精确 1000Hz 采样频率；采样总周期仍需实测【待验证】。
+- 本章不把 TIM6 配置意图等同于当前微秒时基使用证据。
 
 下一章可以进入 Newlib 适配与 UART 调试输出，因为当前已经具备毫秒节拍、微秒时间戳和基本调试时间观察能力，后续需要解释项目如何把 `printf` 调试信息输出到串口。
 
@@ -338,6 +468,8 @@ SysTick 提供连续时基，DWT 负责短时间等待。
 - `Drivers/CustomDrivers/Src/mpu6050Calibration.c`
 - `Drivers/CustomDrivers/Inc/mpu6050Calibration.h`
 - `Drivers/CustomDrivers/Src/mpu6050.c`
+- `Core/Src/tim.c`
+- `Three-axis_cloud_platformV2.ioc`
 - `Drivers/CMSIS/Include/core_cm3.h`
 
 符号、函数与配置项证据：
@@ -347,6 +479,7 @@ SysTick 提供连续时基，DWT 负责短时间等待。
 - `DWT->CYCCNT`
 - `DWT->CTRL`
 - `DWT_CTRL_CYCCNTENA_Msk`
+- `DWT_CTRL_NOCYCCNT_Msk`
 - `SystemCoreClock`
 - `micros()`
 - `HAL_GetTick()`
@@ -354,6 +487,9 @@ SysTick 提供连续时基，DWT 负责短时间等待。
 - `SysTick->LOAD`
 - `DWT_Delay_us()`
 - `sampleRate`
+- `MX_TIM6_Init()`
+- `htim6`
+- `__HAL_TIM_SET_COUNTER()`
 - `deltaTime500Hz`
 - `executionTime500Hz`
 

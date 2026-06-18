@@ -42,6 +42,8 @@
 - SysTick系统节拍：由 Cortex-M3 内核 SysTick 定时器产生的周期性节拍，本项目配置为 1ms。
 - 中断向量表：启动文件中保存异常和外设中断入口函数地址的表。
 - 中断处理函数：中断发生后被调用的函数，例如 `SysTick_Handler()` 和 `TIM8_UP_IRQHandler()`。
+- 弱默认处理函数：启动文件中用弱别名把未实现的中断入口指向 `Default_Handler`，项目同名函数会覆盖弱默认入口。
+- 中断分发：外设 IRQ 入口通常先进入 HAL 分发函数，再由 HAL 根据外设标志和回调关系转到具体业务逻辑。
 - HAL 时基：HAL 内部用于 `HAL_GetTick()`、`HAL_Delay()` 等时间函数的毫秒计数基础。
 - 500Hz 实时控制循环触发标志：项目中由 `SysTick_Handler()` 根据 `COUNT_500HZ` 置位的 `frame_500Hz`。
 - 10Hz 低频任务：主循环中用 `HAL_GetTick() - last_print_tick >= 100` 判断的低频任务入口。
@@ -62,7 +64,23 @@
 
 `tim.c` 为 TIM8 更新中断设置优先级 1 并使能；`usbd_conf.c` 为 USB 低优先级中断设置优先级 0 并使能。
 
-第三层是节拍行为。SysTick 与普通外设中断不同，它是 Cortex-M3 内核自带的系统节拍定时器。
+这一步只说明中断入口具备被响应的配置条件。是否真的发生中断、是否清除了外设标志、是否触发业务状态变化，
+还要继续查看外设状态寄存器、HAL 分发函数、回调函数和运行时记录。
+因此，教材中要区分“配置存在”和“运行发生”。
+
+第三层是处理链路。一个外设中断从工程配置到业务效果，至少包含以下可拆单元：
+
+1. 向量表中存在对应入口。
+2. 项目源码中用同名函数覆盖弱默认处理函数。
+3. NVIC 设置优先级分组、抢占优先级和使能位。
+4. 外设侧打开中断源，并在硬件事件到达时置位中断标志。
+5. IRQHandler 入口调用 HAL 分发函数。
+6. HAL 根据外设标志进入回调或清除标志。
+7. 项目业务变量、队列、状态机或输出发生变化。
+
+缺少第4到第7步证据时，只能说“中断配置链路存在”，不能说“业务中断已经按预期运行”。
+
+第四层是节拍行为。SysTick 与普通外设中断不同，它是 Cortex-M3 内核自带的系统节拍定时器。
 
 项目把 SysTick 配置成 1ms 一次中断。每次进入 `SysTick_Handler()`，先调用 `HAL_IncTick()` 更新 HAL 毫秒计数。
 
@@ -79,6 +97,18 @@
 7. `COUNT_500HZ` 为 2，因此每 2ms 置位 `frame_500Hz`。
 8. `main()` 主循环消费 `frame_500Hz`，进入后续 500Hz 实时控制路径。
 
+对应的数学换算为：
+
+```text
+T_systick = 1 ms = 0.001 s
+COUNT_500HZ = 2
+T_frame = 2 * T_systick = 2 ms = 0.002 s
+f_frame = 1 / T_frame = 1 / 0.002 s = 500 Hz
+```
+
+这个结果表示调度意图和标志置位节奏，不等同于已经测得控制环稳定运行在 500Hz。
+主循环耗时、中断屏蔽、同优先级中断竞争、I2C 读数耗时和调试断点都会影响实际帧间隔。
+
 10Hz 低频任务没有单独使用一个中断，而是在主循环中用 `HAL_GetTick()` 做时间差判断。这样，项目把 500Hz 实时控制循环触发和 10Hz 低频任务都建立在同一个 1ms HAL/SysTick 时间基础上。
 
 ## 6. STM32实现机制
@@ -93,6 +123,30 @@
 - `stm32f1xx_it.c` 承载项目实际的中断处理函数。
 - `main.c` 在用户初始化段中再次明确配置 SysTick 1ms 周期和 SysTick 优先级。
 
+从寄存器层看，`HAL_SYSTICK_Config()` 最终进入 CMSIS 的 `SysTick_Config(ticks)`。
+
+`SysTick_Config()` 做了四件关键事情：
+
+- 先检查 `ticks - 1` 是否超过 `SysTick_LOAD_RELOAD_Msk`。`LOAD` 是 24 位重装载寄存器，上限为 `0xFFFFFF`。
+- 写入 `SysTick->LOAD = ticks - 1`，使计数器从该重装载值向下计数。
+- 写入 `SysTick->VAL = 0`，清当前计数值，让新的周期配置立即从干净状态开始。
+- 写入 `SysTick->CTRL` 的 `CLKSOURCE`、`TICKINT`、`ENABLE` 位，选择 HCLK、打开中断并启动计数器。
+
+在当前 `.ioc` 中，系统时钟目标值为 72MHz。若 `SystemCoreClock` 已按该时钟更新，
+`HAL_SYSTICK_Config(SystemCoreClock / 1000)` 的参数就是 `72000000 / 1000 = 72000`，
+于是 `SysTick->LOAD` 期望值为 `72000 - 1 = 71999`。`71999` 小于 24 位上限，
+因此从寄存器约束看，该 1ms 配置是可表达的。
+
+项目中 SysTick 会经历多次配置阶段：
+
+1. `HAL_Init()` 在复位后的默认时钟状态下建立 HAL 初始 tick。
+2. `HAL_RCC_ClockConfig()` 切换系统时钟后再次调用 tick 初始化，使 tick 适配新核心时钟。
+3. `main.c` 用户初始化段再次调用 `HAL_SYSTICK_Config(SystemCoreClock / 1000)` 明确配置 1ms。
+4. `main.c` 随后调用 `HAL_NVIC_SetPriority(SysTick_IRQn, 0, 0)`，覆盖 CMSIS 默认最低优先级。
+
+这种多阶段配置不是重复概念，而是 STM32 HAL 工程的时钟切换现实：
+时基参数依赖 `SystemCoreClock`，而 `SystemCoreClock` 会在时钟树配置后更新。
+
 项目中可以看到三类中断入口。
 
 第一类是内核异常和系统异常，例如 `NMI_Handler()`、`HardFault_Handler()`、`SysTick_Handler()`。这些入口在 `stm32f1xx_it.c` 中实现，其中本章重点是 `SysTick_Handler()`。
@@ -100,6 +154,17 @@
 第二类是外设中断入口，例如 `TIM8_UP_IRQHandler()`。本章只确认它由 `tim.c` 配置优先级和使能，并在处理函数中进入 HAL TIM 分发，具体 TIM8 用途留到第13章。
 
 第三类是 USB 低优先级中断入口。本章只确认它由 `usbd_conf.c` 配置优先级和使能，并在处理函数中进入 HAL PCD 分发，USB 设备和 CDC 细节留到第15章和第16章。
+
+当前优先级关系要按“数值越小，抢占优先级越高”理解。项目使用 `NVIC_PRIORITYGROUP_4`，
+表示 4 位都用于抢占优先级，子优先级为 0 位。当前可见配置中：
+
+- SysTick 在 `main.c` 中被设为优先级 0。
+- USB 低优先级中断在 `usbd_conf.c` 中被设为优先级 0。
+- TIM8 更新中断在 `tim.c` 中被设为优先级 1。
+
+这说明 TIM8 更新中断的抢占优先级低于 SysTick 和 USB 低优先级中断。
+但 SysTick 和 USB 低优先级中断同为 0 时，不能仅凭数值断言哪一路总能先完成。
+实际响应还受当前执行状态、异常入口时刻、全局中断屏蔽、处理函数长度和硬件 pending 状态影响。
 
 ## 7. 项目中的应用
 
@@ -123,12 +188,18 @@
 - 启动文件提供中断向量表，决定中断名称如何落到处理函数。
 - `.ioc` 记录 SysTick、TIM8 更新中断和 USB 低优先级中断的配置意图。
 - HAL 源码说明 `HAL_Init()`、`HAL_InitTick()`、`HAL_RCC_ClockConfig()`、`HAL_SYSTICK_Config()` 和 NVIC API 如何工作。
-- `stm32f1xx_it.c` 放置项目真实中断处理函数。
+- `stm32f1xx_it.c` 放置项目中的中断处理函数。
 - `main.h` 定义 `FRAME_COUNT`、`COUNT_500HZ` 和 `frame_500Hz` 等节拍相关符号。
 - `main.c` 配置 SysTick，并在主循环中消费 `frame_500Hz` 和 `HAL_GetTick()`。
-- `tim.c` 与 `usbd_conf.c` 证明外设中断优先级和使能配置存在，但本章不展开外设内部逻辑。
+- `tim.c` 与 `usbd_conf.c` 确认外设中断优先级和使能配置存在，但本章不展开外设内部逻辑。
 
-在项目主流程中，初始化阶段先经过 `HAL_Init()`，随后 `SystemClock_Config()` 通过 `HAL_RCC_ClockConfig()` 切换系统时钟并适配 HAL tick，再初始化外设。用户初始化段再次配置 SysTick 1ms 周期，设置 SysTick 优先级，并在系统准备完成后把 `systemReady` 置为 `true`。此后，`SysTick_Handler()` 才会在条件满足时推进项目帧计数并产生 `frame_500Hz`。
+在项目主流程中，初始化阶段先经过 `HAL_Init()`。
+
+随后 `SystemClock_Config()` 通过 `HAL_RCC_ClockConfig()` 切换系统时钟并适配 HAL tick，再初始化外设。
+
+用户初始化段再次配置 SysTick 1ms 周期，设置 SysTick 优先级，并在系统准备完成后把 `systemReady` 置为 `true`。
+
+此后，`SysTick_Handler()` 才会在条件满足时推进项目帧计数并产生 `frame_500Hz`。
 
 ## 8. 代码分析
 
@@ -144,7 +215,8 @@
 
 随后它调用 `HAL_InitTick(TICK_INT_PRIORITY)` 建立 HAL 默认时基。
 
-`HAL_InitTick()` 默认使用 `HAL_SYSTICK_Config(SystemCoreClock / (1000U / uwTickFreq))` 建立 1ms 时基，并设置 SysTick 优先级。这里说明 HAL 本身依赖 SysTick 作为默认毫秒时间来源。
+`HAL_InitTick()` 默认使用 `HAL_SYSTICK_Config(SystemCoreClock / (1000U / uwTickFreq))`
+建立 1ms 时基，并设置 SysTick 优先级。这里说明 HAL 本身依赖 SysTick 作为默认毫秒时间来源。
 
 ### 3. `HAL_RCC_ClockConfig()` 中的 tick 适配
 
@@ -179,11 +251,28 @@
 
 项目源码中 `frame_500Hz` 附近有注释提到定时器中断，但当前实际置位位置在 `SysTick_Handler()`。教材以代码事实为准：本章阶段应把 500Hz 触发来源追踪到 SysTick，而不是 TIM8。
 
+这个 ISR 也不是“完全只置位标志”。当前代码在条件满足时还调用 `micros()` 两次，
+更新 `deltaTime1000Hz`、`previous1000HzTime` 和 `executionTime1000Hz`。
+因此它比最小化节拍 ISR 稍重。源码注释中把 I2C 读取留在主循环，是为了避免在 SysTick 中执行更重的总线访问；
+这种分工从工程结构上合理，但真实耗时和抖动改善仍需 DWT 记录或外部测量【待验证】。
+
 ### 7. 主循环中的 500Hz 消费
 
 `Core/Src/main.c` 的主循环检查 `frame_500Hz`。如果标志为真，就先清除标志，再计算 `deltaTime500Hz` 和 `dt500Hz`，随后进入传感器读取、姿态更新和电机控制路径。
 
 这些后续处理属于第26章和算法篇的内容。本章只确认：主循环不是靠延时函数固定等待 2ms，而是靠 SysTick 中断置位的标志驱动 500Hz 实时控制循环入口。
+
+这里还要注意两个工程审查点。
+
+第一，当前 `frame_500Hz` 在 `main.c` 和 `main.h` 中声明为普通 `bool`，未见 `volatile` 修饰。
+它由 `SysTick_Handler()` 写入、由主循环读取并清除，属于中断上下文和主循环共享变量。
+在优化等级、编译器行为和访问顺序变化下，普通共享标志可能带来可见性审查风险。
+本章只记录该风险，不修改源码；是否需要改为 `volatile` 或引入更严格的同步策略，留给代码审查和实测验证。
+
+第二，`frame_500Hz` 是布尔标志，不是累计计数器。如果主循环某一轮处理时间超过 2ms，
+SysTick 可能多次把它写成 `true`，但主循环下一次只会看到一个 `true`。
+这会造成“多次调度请求合并成一次消费”的风险。项目用 `deltaTime500Hz = currentTime - previous500HzTime`
+记录实际帧间隔，这能帮助发现滑帧或抖动，但不能阻止布尔标志合并本身。
 
 ### 8. 主循环中的 10Hz 低频任务
 
@@ -197,9 +286,22 @@
 
 `stm32f1xx_it.c` 中对应处理函数调用 `HAL_TIM_IRQHandler(&htim8)`。
 
-`USB_DEVICE/Target/usbd_conf.c` 中 USB 低优先级中断分支调用 `HAL_NVIC_SetPriority(..., 0, 0)` 和 `HAL_NVIC_EnableIRQ(...)`，`stm32f1xx_it.c` 中对应处理函数进入 HAL PCD 分发。
+`USB_DEVICE/Target/usbd_conf.c` 中 USB 低优先级中断分支调用
+`HAL_NVIC_SetPriority(..., 0, 0)` 和 `HAL_NVIC_EnableIRQ(...)`。
+`stm32f1xx_it.c` 中对应处理函数进入 HAL PCD 分发。
 
 这些证据说明项目确实存在外设中断配置。但第09章只建立 NVIC 配置方法和入口关系，TIM8 和 USB 的业务含义分别留到后续章节。
+
+更严格地说，`HAL_TIM_IRQHandler(&htim8)` 和 `HAL_PCD_IRQHandler(&hpcd_USB_FS)` 都只是分发入口。
+要证明它们产生了项目业务效果，还需要继续找到：
+
+- 外设中断源是否打开。
+- 对应状态标志是否在运行时置位。
+- HAL 是否进入具体回调。
+- 项目变量、缓冲区、通信状态或控制输出是否发生预期变化。
+
+当前第09章不把这些分发入口误写成“TIM8 已经驱动 500Hz”或“USB 已经完成主机枚举”。
+后一类结论必须等第13章、第15章、第16章结合更多证据再判断。
 
 ### 本节证据边界
 
@@ -222,6 +324,17 @@
 - 主循环是否及时清除并消费 `frame_500Hz`。
 - 10Hz 低频任务是否依赖 `HAL_GetTick()` 的 100ms 差值。
 
+寄存器与变量观察建议：
+
+- `SysTick->LOAD`：在 72MHz、1ms 配置下，期望看到 `71999`。
+- `SysTick->VAL`：应在 0 到 `LOAD` 之间循环递减，单步调试时读数会被调试过程扰动。
+- `SysTick->CTRL`：重点看 `CLKSOURCE`、`TICKINT`、`ENABLE` 是否有效。
+- `uwTick`：由 `HAL_IncTick()` 推进，是 `HAL_GetTick()` 的返回基础。
+- `frameCounter`：系统就绪且未校准时按 1ms 节奏递增，超过 `FRAME_COUNT` 后回绕。
+- `frame_500Hz`：每两个 tick 被置为 `true`，由主循环消费并清零。
+- `deltaTime500Hz`：用于观察主循环实际帧间隔，能暴露调度滑移。
+- `executionTime1000Hz`：用于观察 SysTick ISR 内部记录到的执行耗时。
+
 常见异常定位：
 
 - 10Hz 低频任务不再触发：先检查 `HAL_IncTick()` 是否仍在 `SysTick_Handler()` 中执行，再检查 `HAL_GetTick()` 判断条件。
@@ -229,6 +342,7 @@
 - 500Hz 周期明显不对：先确认 `SystemCoreClock` 和 `HAL_SYSTICK_Config(SystemCoreClock / 1000)`，再确认 `COUNT_500HZ` 是否仍为 2。
 - TIM8 或 USB 中断处理异常：先确认 `.ioc` 和对应 MSP 初始化中的 NVIC 优先级/使能，再进入各自后续章节分析外设逻辑。
 - 程序进入默认死循环：检查启动文件中向量名称和 `stm32f1xx_it.c` 中实际函数名称是否一致。
+- 调试时周期看起来异常：先确认是否在 ISR 或主循环 500Hz 分支中打断点。断点和串口打印都会改变时序。
 
 调试记录建议：
 
@@ -281,6 +395,26 @@ SysTick 是节拍来源，500Hz 实时控制循环是项目在主循环中基于
 因此，第09章能提供的是“配置结构”，不是绝对的时序保证。
 如果后续调试中发现实时周期不稳，应该把 NVIC、主循环耗时和中断嵌套一起看，
 而不是只改一个优先级数字。
+
+### 6. 为什么已经有 HAL 默认 tick，`main.c` 还要再次配置 SysTick？
+
+`HAL_Init()` 会在程序早期建立默认 HAL tick，`HAL_RCC_ClockConfig()` 又会在时钟切换后适配 tick。
+这两步属于 HAL 框架层。`main.c` 用户初始化段再次调用 `HAL_SYSTICK_Config(SystemCoreClock / 1000)`，
+相当于用当前 `SystemCoreClock` 明确声明项目期望的 1ms 节拍。
+
+还要注意，CMSIS 的 `SysTick_Config()` 会先把 SysTick 优先级设到最低。
+因此项目紧接着调用 `HAL_NVIC_SetPriority(SysTick_IRQn, 0, 0)`，
+把 SysTick 优先级调到当前工程设定的 0。
+
+### 7. `frame_500Hz` 是布尔标志，会不会漏掉帧？
+
+有这个审查风险。布尔标志只能表达“至少有一次请求发生”，不能表达“发生了几次请求”。
+如果主循环长时间忙于 I2C、姿态解算、电机控制、打印或断点停顿，
+多个 2ms 调度请求可能在主循环下一次读取前合并成同一个 `true`。
+
+当前代码用 `deltaTime500Hz` 和 `dt500Hz` 记录实际帧间隔，这能让后续控制计算知道本帧距离上一帧过了多久。
+但它不是调度补偿队列，也不会自动补跑漏掉的帧。是否需要计数型事件、超时降级或任务拆分，
+要结合第26章的 500Hz 主循环耗时分析再判断。
 
 ## 11. 实践任务
 

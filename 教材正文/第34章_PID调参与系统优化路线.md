@@ -133,6 +133,92 @@ theta_ddot + 2*zeta*wn*theta_dot + wn^2*theta = plant_gain*u + disturbance
 
 缺少仓库外实测记录时，真实电机响应、方向正确性、不过热和闭环稳定性都保持【待验证】。
 
+### 4.6 调参变量与观测变量
+
+调参不是只修改 `P/I/D`。在本项目中，至少要同时区分四类量：
+
+- 设定量：`pointingCmd[]`、阶跃目标、回中目标。
+- 反馈量：`sensors.margAttitude500Hz[]`、经过符号修正后的轴角。
+- 控制量：`pidCmd[]`、`rollDiag.pidRaw`、`rollDiag.pidApplied`。
+- 约束量：`cmd_limit`、`rateLimit`、`iHold`、`return_state` 和轴使能。
+
+如果只记录“电机动了/没动”，读者无法判断问题来自 PID 参数、姿态方向、限幅、速率限制、门控状态还是底层 PWM。调参记录表必须把这些量分开。
+
+### 4.7 仿真一致性边界
+
+`tools/pid_tuning_sim.py` 尽量贴近固件，但它不是固件的逐行复刻。当前至少有三类边界：
+
+- 对象模型边界：脚本用统一二阶模型，固件面对真实三轴机械结构。
+- 限制器边界：脚本对三轴使用统一每步 `rate_limit`，固件 Roll 与 Pitch/Yaw 用法不同。
+- D 项边界：脚本和固件在 D 项初值处理、角度跨界时的差分细节不完全一致。
+
+因此，仿真曲线只适合作为趋势预演。凡是涉及“最终参数”“真实稳定”“真实不过热”的结论，都必须回到仓库外实测。
+
+### 4.8 仿真对象参数边界
+
+仿真界面中的 `wn`、`zeta` 和 `plant_gain` 不是固件参数，也不是仓库已经标定出的真实电机参数。它们只属于 `run_simulation()` 中的简化对象模型：
+
+- `wn` 表示模型的固有响应速度。
+- `zeta` 表示模型阻尼强弱。
+- `plant_gain` 表示控制指令转化为角加速度的比例。
+
+当前脚本对 Roll、Pitch、Yaw 使用同一组对象参数。这适合教学演示“同一组 PID 在不同对象假设下会有不同响应”，但不能证明三轴真实机械结构相同。
+
+如果要让仿真更接近实物，必须先有仓库外记录：输入指令、姿态响应、时间戳、限幅状态和安全条件。缺少这些记录时，`wn/zeta/plant_gain` 只能作为仿真假设，不能作为实物辨识结果。
+
+### 4.9 参数修改与PID内部状态
+
+PID 参数不是唯一会影响下一帧输出的量。当前固件的 `PIDdata_t` 还保存：
+
+```text
+iTerm
+lastDcalcValue
+lastDterm
+lastLastDterm
+```
+
+这些是运行时状态，不是静态参数。它们会随控制循环持续更新。
+如果调参时只修改 `P/I/D`，但不处理这些历史状态，那么下一次输出同时包含：
+
+```text
+新P/I/D参数
++ 旧积分累加值
++ 旧D项滤波历史
++ 旧输出速率限制状态
+```
+
+因此，参数修改后的第一段响应不一定只反映新参数本身。
+仿真工具每次点击“运行仿真”都会重新构造 `PIDRuntime`，默认从零状态开始；
+固件除非调用 `zeroPIDintegralError()`、`zeroPIDstates()` 或轴级重置逻辑，
+否则 PID 历史状态会继续保留。
+
+调参记录必须区分：
+
+- 冷启动后第一次响应。
+- 清零 PID 状态后的响应。
+- 不清零状态、只在线修改参数后的响应。
+
+这三者的曲线和电机表现可能不同。缺少状态记录时，不应直接判断某组 P/I/D 的优劣。
+
+### 4.10 调参试验基线与回滚点
+
+调参不是“看到不好就继续改”，而是一组可复现实验。每一次调参都应先定义基线：
+
+- 固件版本和参数来源。
+- 被测轴和被测模式。
+- 阶跃目标、扰动条件或回中条件。
+- `dt500Hz`、`executionTime500Hz` 和门控状态。
+- PID 历史状态、`pidCmdPrev[]` 和限幅状态。
+- 仓库外安全条件，例如供电、电流、温升和机械限位【待验证】。
+
+基线存在的意义，是让下一次改动只多一个变量。没有基线时，响应变化可能来自 P/I/D，
+也可能来自初始角度、旧积分、D 项历史、速率限制、轴使能或测试姿态不同。
+
+回滚点也必须在改参数前定义。最低要求是保存上一组有记录支撑的 P/I/D、
+限幅设置、`rateLimit`、是否清零状态、以及触发回滚的异常现象。
+如果出现方向反转、持续饱和、执行时间逼近周期预算、明显震荡、温升或电流异常【待验证】，
+应先回退到最近的记录点，而不是继续叠加新参数。
+
 ## 5. 工作原理
 
 ### 5.1 仿真工具如何贴近固件
@@ -210,6 +296,244 @@ Pitch/Yaw 当前直接用 `eepromConfig.rateLimit` 作为每帧差值限制。
 
 这条顺序能让调参建立在已确认的可控对象上，而不是拿 PID 参数补偿硬件或方向错误。
 
+### 5.5 固件离散PID公式
+
+把 `updatePID()` 拆成离散形式，可以得到当前固件的核心计算链。
+
+角度误差为：
+
+```text
+e[k] = wrap(command[k] - state[k])
+```
+
+当 `iHold == false` 时，积分项更新为：
+
+```text
+Iacc[k] = clip(Iacc[k-1] + e[k] * dt, -10, 10)
+```
+
+当 `iHold == true` 时，积分项保持上一帧，不继续累加。当前 `PIDdata.windupGuard`
+字段虽然存在，并在 `main.c` 中被重新赋值，但 `pid.c` 的实际积分限幅使用硬编码
+`[-10, 10]`，没有使用 `windupGuard` 字段。这是调参时必须知道的源码边界。
+
+D 项按 `dErrorCalc` 分两种路径。当前 `config.c` 初始化三轴为 `D_ERROR`：
+
+```text
+d_raw[k] = wrap(e[k] - e[k-1]) / dt
+```
+
+如果使用 `D_STATE`，则按状态变化计算：
+
+```text
+d_raw[k] = wrap(state[k-1] - state[k]) / dt
+```
+
+最后输出为：
+
+```text
+u_pid[k] = P * e[k] + I * Iacc[k] + D * d_avg[k]
+```
+
+其中 `d_avg[k]` 不是原始差分，而是经过限幅、低通和三点平均后的 D 项。
+
+### 5.6 D项低通与三点平均
+
+`pid.c` 使用：
+
+```text
+F_CUT = 20Hz
+rc = 1 / (2*pi*F_CUT)
+alpha = dt / (rc + dt)
+d_filtered[k] = d_filtered[k-1] + alpha * (d_raw[k] - d_filtered[k-1])
+d_avg[k] = (d_filtered[k] + d_filtered[k-1] + d_filtered[k-2]) / 3
+```
+
+在理想 500Hz 下，`dt = 0.002s`，因此：
+
+```text
+rc = 1 / (2*pi*20) ≈ 0.00796s
+alpha = 0.002 / (0.00796 + 0.002) ≈ 0.201
+```
+
+这说明当前 D 项并不是直接使用相邻两帧差分，而是先用一阶低通削弱高频噪声，再用三点平均进一步平滑。调 D 时如果只看公式 `D * de/dt`，会漏掉这两级动态。
+
+D 项还有原始限幅：
+
+```text
+d_raw ∈ [-300, 300]
+```
+
+因此，当姿态噪声或 `dt` 异常导致差分过大时，固件会先限制 D 项输入，再进入低通。仿真中看到的尖峰，应同时检查 `dt`、姿态噪声、D 项限幅和滤波状态。
+
+### 5.7 输出限幅与速率限制的单位
+
+`computeMotorCommands.c` 在 `updatePID()` 之后还有轴级约束。它们决定 PID 输出能不能真正变成电角指令。
+
+Roll 路径：
+
+```text
+pidCmd[ROLL] = clip(rollPidRaw, -ROLL_CMD_LIMIT_RAD, ROLL_CMD_LIMIT_RAD)
+rollStepLimit = max(eepromConfig.rateLimit * safeDt, AXIS_MIN_STEP_LIMIT_RAD)
+pidCmd[ROLL] = pidCmdPrev[ROLL] +/- rollStepLimit
+```
+
+以当前 `rateLimit = 45deg/s = 0.7854rad/s`、`safeDt = 0.002s` 估算：
+
+```text
+rateLimit * safeDt = 0.7854 * 0.002 ≈ 0.00157rad/frame
+```
+
+该值大于 `AXIS_MIN_STEP_LIMIT_RAD = 0.001`，因此理想 500Hz 下 Roll 每帧最大变化约 0.00157rad。
+
+Pitch/Yaw 当前写法不同：
+
+```text
+if outputRate[PITCH] > eepromConfig.rateLimit:
+    pidCmd[PITCH] = pidCmdPrev[PITCH] + eepromConfig.rateLimit
+```
+
+也就是说，Pitch/Yaw 把 `rateLimit` 直接当作每帧变化上限，而不是乘以 `dt`。若 500Hz 稳定运行，等效变化率约为：
+
+```text
+0.7854rad/frame * 500frame/s ≈ 392.7rad/s
+```
+
+这与 Roll 的约束强度不是一个量级。教材不能把三轴速率限制写成完全一致；仿真脚本采用统一 `rate_limit` 时，也不能证明三轴固件实际限速行为一致。
+
+### 5.8 仿真脚本与固件D项差异
+
+`tools/pid_tuning_sim.py` 的 `update_pid()` 与固件总体相似，但当前存在两个细节差异。
+
+第一，D 项初值。固件在 `D_ERROR` 路径中，如果 `lastDcalcValue == 0.0f`，
+会先把它设为当前 `error`，从而减小第一次 D_ERROR 差分尖峰。脚本中
+`pid.last_d_calc == 0.0` 时统一设为 `state`，在阶跃刚出现时可能产生与固件不同的 D 项尖峰。
+
+第二，角度跨界。固件在 `D_ERROR` 路径中对 `error - lastDcalcValue` 再做
+`standardRadianFormat()`，脚本先把 `error` 包裹到 `[-pi, pi]`，但没有对
+`error - last_d_calc` 再单独包裹。跨过 `±pi` 边界时，仿真 D 项可能与固件不同。
+
+这些差异不否定工具价值，但它们限制了工具的证明力。工具适合比较趋势，不适合直接证明某组 D 参数在固件里一定无尖峰。
+
+### 5.9 二阶对象的离散积分
+
+`run_simulation()` 中的对象模型不是连续运行的模拟器，而是在每个 `dt` 步长上做离散更新。脚本中的核心计算等价于：
+
+```text
+a[k] = plant_gain * u[k] + disturbance[k]
+     - 2*zeta*wn*v[k]
+     - wn^2*theta[k]
+
+v[k+1] = v[k] + a[k] * dt
+theta[k+1] = wrap(theta[k] + v[k+1] * dt)
+```
+
+这里的 `v` 对应 `theta_dot`，`a` 对应 `theta_ddot`。脚本先更新速度，再用更新后的速度更新角度，因此是半隐式欧拉形式。
+
+这个细节会影响仿真解释。若把 `dt` 调得过大，或者把 `wn` 调得很高，曲线震荡可能来自数值离散误差，而不一定来自 PID 参数本身。默认 `dt=0.002s`、`wn=7` 时：
+
+```text
+dt * wn = 0.002 * 7 = 0.014
+```
+
+该值很小，适合作为教学预演起点。若读者修改 `dt` 或对象参数，应先确认仿真步长仍足够细，再把曲线趋势用于调参判断。
+
+### 5.10 限幅主导与调参误读
+
+脚本中的输出链路为：
+
+```text
+raw PID output
+-> cmd_limit限幅
+-> rate_limit限速
+-> control曲线
+-> 二阶对象模型
+```
+
+当前图形界面绘制的是最终 `control`，也就是经过命令限幅和速率限制后的结果。它没有单独绘制原始 PID 输出、命令限幅后的输出和速率限制触发状态。
+
+因此，看到响应慢时不能立刻判断“P 太小”；看到控制曲线平滑时，也不能立刻判断“没有饱和”。更严谨的判断是分层记录：
+
+- `u_pid`：`update_pid()` 原始输出。
+- `u_clamped`：经过 `cmd_limit` 后的输出。
+- `u_applied`：经过 `rate_limit` 后的最终输出。
+- `limit_active`：是否触及命令限幅。
+- `rate_active`：是否触及速率限制。
+
+固件侧 Roll 已经有 `rollDiag.pidRaw`、`rollDiag.pidClamped`、
+`rollDiag.pidApplied` 和 `rollDiag.stepLimit`，适合作为分层观察样例。
+Pitch/Yaw 当前没有同等级诊断结构，调参时不能假定三轴都有相同可观测性。
+
+### 5.11 调参状态重置与可比性
+
+一次调参实验要能比较，除了 P/I/D 本身，还要让初始状态尽可能一致。
+
+仿真工具的做法比较简单。`run_and_plot()` 每次运行时都会重新创建：
+
+```text
+PIDRuntime(p, i, d)
+AxisPlantState()
+```
+
+这意味着每次仿真默认从：
+
+```text
+i_term = 0
+last_d_calc = 0
+last_d_term = 0
+last_last_d_term = 0
+theta = 0
+theta_dot = 0
+cmd_prev = 0
+```
+
+开始。它适合比较“同一初始条件下，不同 P/I/D 的趋势”。
+
+固件运行时不同。`updatePID()` 会持续更新 `iTerm` 和 D 项历史；
+`computeMotorCommands()` 还会更新 `pidCmdPrev[]`，用于下一帧速率限制。
+如果在不中断控制链的情况下直接修改 P/I/D，旧状态仍会参与后续计算。
+
+因此，固件调参建议至少记录三件事：
+
+- 改参数前的 `iTerm`、`lastDcalcValue`、`lastDterm`、`lastLastDterm`。
+- 改参数后是否调用过 `zeroPIDintegralError()`、`zeroPIDstates()` 或轴级状态清零。
+- `pidCmdPrev[]` 是否保留旧输出，导致速率限制继续按旧输出差值工作。
+
+这不是要求每次都必须清零。清零能提高实验可比性，但也可能不代表真实连续运行场景。
+更稳妥的写法是：调参报告必须说明采用“清零后测试”还是“连续运行在线修改”。
+没有这个说明时，响应差异只能作为现象记录，不能直接归因到某个 PID 参数。
+
+### 5.12 调参指标的可计算口径
+
+为了避免“感觉更稳”这类模糊结论，调参记录至少应把曲线转换成指标。
+对阶跃目标 `r[k]` 和角度反馈 `y[k]`，角度误差可写为：
+
+```text
+e[k] = wrap(r[k] - y[k])
+```
+
+常用指标包括：
+
+```text
+峰值误差     = max(|e[k]|)
+稳态误差     = 观测窗口末段 mean(|e[k]|)
+进入误差带时间 = 首次满足 |e[k]| < eps 并保持的时间
+控制峰值     = max(|u_applied[k]|)
+饱和占比     = 饱和帧数 / 总帧数
+限速占比     = 限速帧数 / 总帧数
+```
+
+这些指标不是越小越好就结束，还要结合安全和实时性解释。
+例如，峰值误差变小但控制峰值长期撞限幅，说明限幅可能正在主导响应；
+稳态误差变小但 `iTerm` 贴近限幅，说明 I 项可能在用积分累积补偿其它问题；
+响应变快但 `executionTime500Hz` 接近 2000us，则实时裕量变窄。
+
+当前 `tools/pid_tuning_sim.py` 返回 `time`、`target`、`actual` 和最终 `control`，
+适合计算误差和最终控制量指标；但它没有单独返回原始 PID 输出、
+命令限幅后输出和限速触发标志。固件侧 Roll 有 `rollDiag.pidRaw`、
+`rollDiag.pidClamped`、`rollDiag.pidApplied` 和 `rollDiag.stepLimit`，
+更适合做分层指标记录。Pitch/Yaw 如果只观察 `pidCmd[]` 和 `outputRate[]`，
+饱和与限速判断的证据会弱一些，结论应保守。
+
 ## 6. STM32实现机制
 
 从 STM32 角度看，第34章不是新增外设章节，而是把已有机制组合成优化路线。
@@ -220,7 +544,19 @@ Pitch/Yaw 当前直接用 `eepromConfig.rateLimit` 作为每帧差值限制。
 
 第三，串口输出来自第11章和第32章。低频打印适合观察慢变量，但不适合在 500Hz 内大量输出。
 
-第四，电机输出来自第30章。仓库源码可以证明 `PWM_Motor_SetAngle()` 的输出路径和 CCR 写入关系；真实电机响应仍按 4.5 节的证据层级处理。
+第四，电机输出来自第30章。仓库源码可以确认 `PWM_Motor_SetAngle()` 的输出路径和 CCR 写入关系；仓库外电机响应仍按 4.5 节的证据层级处理。
+
+第五，性能观察来自 DWT 和 `micros()`。`main.c` 中启用了 `DWT->CYCCNT`，并用
+`executionTime500Hz = micros() - currentTime` 记录 500Hz 分支耗时。调参时如果加入
+更多打印、矩阵运算或复杂滤波，必须观察 500Hz 分支是否仍有周期裕量。
+
+第六，当前 Debug 构建使用 `-mcpu=cortex-m3`、`-mfloat-abi=soft` 和 `-O0`。
+STM32F103/Cortex-M3 没有硬件 FPU，浮点 PID、`sinf/fmodf`、AHRS 和调试打印都可能
+增加耗时。教材不能只从算法公式推断实时性，必须用 `dt500Hz` 和 `executionTime500Hz` 验证。
+
+第七，调参停止条件也要依赖 MCU 侧证据。若 `dt500Hz` 超出合理范围、
+`executionTime500Hz` 接近 2000us、`pidCmd[]` 长期饱和、或 `outputRate[]`
+长期受限，当前现象不应继续简单归因于 P/I/D。硬件温升、电流和机械撞限仍属于仓库外证据【待验证】。
 
 ## 7. 项目中的应用
 
@@ -244,7 +580,7 @@ main.c中的当前PID覆盖值
 -> PWM_Motor_SetAngle()输出到电机
 ```
 
-其中，仿真工具用于“预演趋势”，仓库源码用于“确认软件路径”，仓库外实测用于“确认真实效果”。
+其中，仿真工具用于“预演趋势”，仓库源码用于“确认软件路径”，仓库外实测用于“确认实际效果”。
 
 ## 8. 代码分析
 
@@ -334,6 +670,220 @@ eepromConfig.rateLimit = 45.0f * D2R
 
 因此，判断当前固件运行 PID 时，应以实际初始化后最终值为准。仿真工具读取 `main.c` 的覆盖值，是为了贴近这一点。
 
+当前工具按仓库源码解析出的值为：
+
+```text
+ROLL  : P=0.03, I=0.0,  D=0.008
+PITCH : P=0.01, I=0.0,  D=0.008
+YAW   : P=0.03, I=0.01, D=0.016
+```
+
+命令限幅为：
+
+```text
+ROLL_CMD_LIMIT_RAD  = 0.15
+PITCH_CMD_LIMIT_RAD = 1.5
+YAW_CMD_LIMIT_RAD   = 1.0
+```
+
+`rateLimit` 从 `config.c` 中的 `45.0f * D2R` 解析得到：
+
+```text
+rateLimit = 45deg/s = 0.7854rad/s
+```
+
+这些数值来自源码解析，不等于已经通过实物调参验证。
+
+### 8.8 windupGuard字段边界
+
+`PIDdata_t` 中有：
+
+```text
+float windupGuard;
+```
+
+`config.c` 和 `main.c` 都会给它赋值。但当前 `pid.c` 的 `updatePID()` 没有使用 `PIDparameters->windupGuard`，而是把积分累加值硬限制到：
+
+```text
+[-10.0, 10.0]
+```
+
+因此，修改 `eepromConfig.PID[...].windupGuard` 不能按当前源码直接改变积分限幅。调参时如果希望改变积分抗饱和边界，应先确认 `pid.c` 是否已改为使用该字段；否则结论保持【待验证】。
+
+### 8.9 holdIntegrators传播边界
+
+`computeMotorCommands()` 开头设置：
+
+```text
+holdIntegrators = false
+```
+
+Roll 闭环分支中，如果电角误差超过 `ROLL_I_ENABLE_ERR_RAD`，会设置：
+
+```text
+rollHoldIntegrators = true
+holdIntegrators = true
+```
+
+Roll 自己调用 `updatePID()` 时传入 `rollHoldIntegrators`。Pitch/Yaw 调用 `updatePID()` 时传入全局 `holdIntegrators`。
+
+这意味着 Roll 分支的积分暂停状态可能影响同一帧后续 Pitch/Yaw 的积分允许状态。第31章已经提到这种状态耦合；第34章调参时要把它作为观察项，而不是把 Pitch/Yaw 的积分行为看成完全独立。
+
+### 8.10 速率限制差异
+
+Roll 分支使用：
+
+```text
+rollStepLimit = eepromConfig.rateLimit * safeDt
+```
+
+Pitch/Yaw 分支使用：
+
+```text
+pidCmd += eepromConfig.rateLimit
+```
+
+当前 `rateLimit=0.7854rad/s`，理想 500Hz 下 Roll 每帧步长约 `0.00157rad`。Pitch/Yaw 若按当前代码直接每帧加减 `0.7854rad`，等效变化率约 `392.7rad/s`。
+
+因此，当仿真工具用统一 `rate_limit` 对三轴限速时，它只能帮助理解“速率限制会改变响应”，不能证明三轴固件限速强度相同。
+
+### 8.11 仿真D项与固件D项差异
+
+脚本的 `update_pid()` 与固件 `updatePID()` 都有 D 项低通和三点平均，但有两个细节不同：
+
+- 固件 `D_ERROR` 初值用当前 `error` 初始化，脚本初值用 `state` 初始化。
+- 固件对 `error - lastDcalcValue` 再做角度包裹，脚本没有对这个差分再次包裹。
+
+这意味着阶跃瞬间或跨过 `±pi` 边界时，脚本 D 项可能比固件更容易出现差分尖峰。调 D 时，仿真尖峰应视为风险提示，而不是固件必然表现。
+
+### 8.12 性能证据
+
+当前 `main.c` 启用 DWT 计数器，并记录：
+
+```text
+executionTime500Hz = micros() - currentTime
+```
+
+构建文件显示 Debug 配置使用 `-mcpu=cortex-m3`、`-mfloat-abi=soft`、`-O0`。因此，PID、AHRS、三角函数和串口打印的耗时都应以板上测量为准。
+
+调参阶段建议同时观察：
+
+```text
+dt500Hz
+executionTime500Hz
+pidCmd[]
+outputRate[]
+rollDiag.stepLimit
+```
+
+如果 `dt500Hz` 明显偏离 0.002s，先排查任务阻塞和性能问题，再解释 PID 曲线。
+
+### 8.13 仿真对象参数的代码证据
+
+`PIDSimulatorApp` 默认对象参数为：
+
+```text
+wn = 7.0
+zeta = 0.85
+plant_gain = 28.0
+```
+
+这些参数只在 `tools/pid_tuning_sim.py` 的界面和 `run_simulation()` 中使用。
+当前没有证据表明固件会读取它们，也没有仓库内实测记录证明它们已经由真实云台辨识得到。
+
+`run_simulation()` 对三轴循环时复用同一组 `wn/zeta/plant_gain`。
+因此，若仿真中三轴响应相似，那首先说明三轴被放进了同一个对象假设；
+不能据此推出真实 Roll、Pitch、Yaw 的惯量、摩擦、驱动能力或安装方向一致。
+
+### 8.14 限幅观察的代码证据
+
+脚本中输出先经过：
+
+```text
+u = update_pid(...)
+u = clamp(u, -cmd_limit[axis], cmd_limit[axis])
+du = u - state.cmd_prev
+```
+
+之后才按 `rate_limit` 修改最终 `u`。脚本保存到 `control[axis][i]`
+的是最终 `u`，不是原始 PID 输出。
+
+固件侧 Roll 分支提供更细的诊断字段：
+
+```text
+rollDiag.pidRaw
+rollDiag.pidClamped
+rollDiag.pidApplied
+rollDiag.stepLimit
+rollDiag.holdI
+```
+
+这使 Roll 更适合做“原始输出 -> 限幅输出 -> 最终输出”的分层调试。
+Pitch/Yaw 当前只容易观察到 `pidCmd[]` 和 `outputRate[]`，缺少与 Roll 完全对称的诊断字段。
+教材在调参任务中应提醒读者：可观测性不同会影响调参结论的可信度。
+
+### 8.15 PID状态清零与可比性
+
+`pid.c` 中 `initPID()` 会在初始化时清零：
+
+```text
+iTerm
+lastDcalcValue
+lastDterm
+lastLastDterm
+```
+
+启动收敛结束时，`main.c` 还会调用：
+
+```text
+zeroPIDintegralError()
+zeroPIDstates()
+```
+
+这说明项目知道 PID 历史状态会影响接通瞬间的控制输出。
+
+运行过程中，`updatePID()` 会继续更新同一组状态。若调试者在线修改
+`eepromConfig.PID[...].P/I/D`，这些历史状态不会因为参数改变而自动清零。
+此外，`computeMotorCommands.c` 中的 `pidCmdPrev[]` 也会保留上一帧最终输出，
+继续影响下一帧速率限制。
+
+源码提供了清零入口：
+
+```text
+setPIDintegralError()
+zeroPIDintegralError()
+setPIDstates()
+zeroPIDstates()
+```
+
+但是否调用它们属于调参策略。若目标是比较两组参数本身，清零积分和 D 项历史能减少历史状态干扰。
+若目标是观察在线修改参数时的连续运行表现，则不清零也有意义。
+关键是记录清楚实验条件，不能把“清零后响应”和“在线连续响应”混在一起比较。
+
+### 8.16 指标记录能力边界
+
+`tools/pid_tuning_sim.py` 的 `run_simulation()` 返回：
+
+```text
+time
+target
+actual
+control
+```
+
+这说明脚本内部已经具备计算目标、反馈误差和最终控制输出指标的基础。
+但当前 GUI 只绘制曲线，没有自动给出超调、稳态误差、进入误差带时间、
+饱和占比或限速占比。
+
+脚本中 `control` 保存的是经过 `cmd_limit` 和 `rate_limit` 后的最终控制量。
+因此，若要判断“PID 原始输出是否过大”，当前脚本需要额外记录 `update_pid()`
+刚返回的 `u_pid`，以及经过命令限幅后的 `u_clamped`。
+在未增加这些记录前，仿真曲线只能证明最终控制量形状，不能完整证明限幅是否未参与。
+
+固件侧 Roll 的 `rollDiag` 更适合做指标化记录，因为它同时保留原始、限幅后和最终应用输出。
+Pitch/Yaw 没有同等级诊断字段，若只靠 `pidCmd[]` 和 `outputRate[]`，
+应把“限幅是否长期主导”和“限速是否长期主导”写成较弱结论。
+
 ### 本节证据边界
 
 本节只根据当前仓库说明文件、函数、宏、变量和调用关系。运行时频率、外部硬件表现、主机侧现象、传感器方向、电机响应或真实控制效果仍需调试记录、日志或仓库外实测证据；缺少证据时保持【待验证】。
@@ -352,32 +902,75 @@ eepromConfig.rateLimit = 45.0f * D2R
 - 运行 `tools/pid_tuning_sim.py`。
 - 点击“加载固件默认值”。
 - 确认三轴 P/I/D 与当前 `main.c` 覆盖值一致。
+- 当前应读到 Roll `0.03/0/0.008`，Pitch `0.01/0/0.008`，Yaw `0.03/0.01/0.016`。
+- 确认命令限幅为 Roll `0.15`、Pitch `1.5`、Yaw `1.0`。
 
-第三步，先只调 P。
+第三步，确认时间基准。
+
+- 在固件中观察 `dt500Hz` 是否接近 0.002s。
+- 观察 `executionTime500Hz` 是否明显接近或超过 2000us。
+- 如果 500Hz 周期不稳定，先排查 I2C、串口打印、阻塞调用和性能问题。
+
+第四步，确认调参初始状态。
+
+- 记录 `iTerm`、`lastDcalcValue`、`lastDterm`、`lastLastDterm`。
+- 记录 `pidCmdPrev[]`，判断速率限制是否会受上一帧输出影响。
+- 如果要比较两组参数本身，应说明是否调用 `zeroPIDintegralError()` 和 `zeroPIDstates()`。
+- 如果要观察在线修改效果，应明确不清零状态，并把前一组参数的残留状态写入记录。
+
+第五步，建立本轮试验基线。
+
+- 固定被测轴、目标阶跃幅度、测试时长和初始姿态。
+- 固定是否清零 PID 状态，以及是否保留 `pidCmdPrev[]`。
+- 记录上一组可回退参数，包括 P/I/D、`cmd_limit`、`rateLimit` 和门控状态。
+- 先写下停止条件，例如方向反、持续饱和、明显震荡、周期超预算或仓库外安全异常【待验证】。
+
+第六步，先只调 P。
 
 - I 和 D 先保持 0 或很小。
 - 观察阶跃响应是否方向正确。
 - 若方向错误，不要继续增大 P，应先回到姿态符号、电机映射和电角方向检查。
+- 记录 `pidCmd[]` 是否还没有撞到轴级 `cmd_limit`。
 
-第四步，再加入 D。
+第七步，再加入 D。
 
 - D 用于抑制超调和震荡。
 - 观察控制输出是否出现尖峰。
 - 结合第28章的 D 项滤波和第32章的异常防护检查 `dTerm`。
+- 若只在仿真中出现尖峰，应复核 8.11 节的脚本/固件 D 项差异。
+- 修改 D 后尤其要记录是否清零 `lastDcalcValue`、`lastDterm` 和 `lastLastDterm`。
 
-第五步，最后谨慎加入 I。
+第八步，最后谨慎加入 I。
 
 - I 用于消除长期静差。
 - 如果系统还存在方向错误、门控不清或输出长期饱和，先不要加入 I。
 - 仓库外实测中加入 I 后要观察 `iTerm` 是否持续贴近限幅。
+- 不要把 `windupGuard` 修改当成已经改变积分限幅；当前 `pid.c` 使用硬编码 `[-10, 10]`。
+- 修改 I 后要记录原有 `iTerm` 是否保留；否则静差改善或偏转不能只归因于新 I 参数。
 
-第六步，检查限幅和速率限制。
+第九步，检查限幅和速率限制。
 
 - 如果 `pidCmd[]` 长期等于 `ROLL/PITCH/YAW_CMD_LIMIT_RAD`，说明输出饱和。
 - 如果 `outputRate[]` 长期被限制，说明变化率约束正在主导响应。
+- Roll 还应观察 `rollDiag.stepLimit`，确认是否由 `rateLimit * safeDt` 限制。
+- Pitch/Yaw 要注意当前 `rateLimit` 是直接每帧使用，不能简单等同 Roll。
 - 不要把限幅导致的“响应慢”误判为 P 太小。
 
-第七步，仓库外实测验证。
+第十步，分层记录 PID 输出。
+
+- 仿真中至少区分原始 PID 输出、命令限幅后输出和最终控制输出。
+- 固件中 Roll 优先记录 `rollDiag.pidRaw`、`rollDiag.pidClamped` 和 `rollDiag.pidApplied`。
+- Pitch/Yaw 若只能观察 `pidCmd[]` 和 `outputRate[]`，应在记录表中标明可观测性不足。
+- 当最终输出很平滑时，仍要检查是否已经被限幅或速率限制接管。
+
+第十一步，指标化判定。
+
+- 记录峰值误差、稳态误差、进入误差带时间和控制峰值。
+- 记录饱和占比、限速占比、`iTerm` 是否贴近限幅。
+- 记录 `dt500Hz` 和 `executionTime500Hz`，判断实时性是否仍有裕量。
+- 没有这些指标时，只能写“观察到某种现象”，不能写“参数更优”。
+
+第十二步，仓库外实测验证。
 
 - 每次只改一个轴、一个参数。
 - 每次改动后记录参数、现象、是否震荡、是否过热、是否撞限幅。
@@ -387,7 +980,8 @@ eepromConfig.rateLimit = 45.0f * D2R
 调试记录建议：
 
 - 记录调参前提、固件参数来源、仿真参数、单轴单参数改动和回退点。
-- 每次调参应记录 P/I/D、限幅、速率限制、阶跃响应、饱和状态和异常现象。
+- 每次调参应记录 P/I/D、PID历史状态、限幅、速率限制、阶跃响应、饱和状态和异常现象。
+- 每次记录都应包含基线、停止条件、实际触发条件和是否回滚。
 - 仿真结果、源码变量和仓库外实测结果应分列记录，不能互相替代。
 - 方向正确性、不过热、无振荡和闭环稳定性必须有安全实测证据，缺失时保持【待验证】。
 
@@ -428,11 +1022,48 @@ eepromConfig.rateLimit = 45.0f * D2R
 即使使用同一套方法，也应逐轴记录初始参数、修改项、现象和回退点。
 教材给出的是调试顺序，不是保证所有轴共用同一组参数。
 
+问题九：修改 `windupGuard` 是否会改变当前积分限幅。
+
+按当前 `pid.c`，不会直接改变。`updatePID()` 使用硬编码 `[-10, 10]` 限制积分累加值，没有读取 `PIDparameters->windupGuard`。
+
+问题十：仿真中 D 项出现尖峰，是否说明固件一定也会尖峰。
+
+不能直接这样判断。脚本和固件在 D_ERROR 初值处理与角度差分包裹上存在差异。仿真尖峰应作为风险提示，固件表现还要观察 `lastDcalcValue`、`lastDterm`、`lastLastDterm` 和实际输出。
+
+问题十一：Roll、Pitch、Yaw 的速率限制是否完全一样。
+
+当前不是。Roll 使用 `rateLimit * safeDt`，Pitch/Yaw 直接使用 `rateLimit` 作为每帧变化上限。因此响应慢或不慢，必须按轴分别解释。
+
+问题十二：为什么调参时要同时看 `dt500Hz` 和 `executionTime500Hz`。
+
+因为 PID 的 I 项和 D 项都依赖 `dt`。如果 500Hz 周期被 I2C、串口或计算耗时拉长，调参现象可能来自时间基准变化，而不是 P/I/D 本身。
+
+问题十三：在线修改 P/I/D 后，是否应该立即清零 PID 状态。
+
+没有唯一答案，取决于实验目的。
+如果要公平比较两组参数本身，应考虑清零 `iTerm` 和 D 项历史，减少旧状态干扰。
+如果要观察真实连续运行中的在线修改效果，则可以不清零，但必须记录修改前的
+`iTerm`、D 项历史和 `pidCmdPrev[]`。缺少状态记录时，不应把响应差异完全归因于新参数。
+
+问题十四：为什么调参记录必须有回滚点。
+
+因为 PID 输出还受门控、限幅、速率限制、旧积分、D 项历史和硬件状态影响。
+如果没有上一组可复现参数，异常出现后只能继续猜测。
+回滚点让调试者先恢复到已知状态，再判断新问题是否由本次改动引入。
+
+问题十五：什么时候应该停止继续加大 P/I/D。
+
+当方向错误、`pidCmd[]` 长期饱和、`outputRate[]` 长期受限、`iTerm` 贴近限幅、
+`executionTime500Hz` 接近周期预算，或仓库外安全指标异常【待验证】时，
+应停止继续加参数，先定位约束或安全问题。
+
 ## 11. 实践任务
 
-开始任务前，先回到本章第8节定位源码证据：参数读取看 8.1 至 8.3，仿真计算看 8.4 和 8.5，界面操作看 8.6，固件当前 PID 来源看 8.7。第9节提供从仿真到仓库外实测的调试顺序。
+开始任务前，先回到本章第8节定位源码证据：参数读取看 8.1 至 8.3，仿真计算看 8.4 和 8.5，界面操作看 8.6。
+固件当前 PID 来源看 8.7，积分、限速、D 项、性能、对象参数、限幅观察、PID 状态和指标记录边界看 8.8 至 8.16。
+第9节提供从仿真到仓库外实测的调试顺序。
 
-任务一至任务五属于仿真和参数证据；任务六至任务七属于仓库外调参记录和移植综合设计。
+任务一至任务十属于仿真、参数、代码证据和调参基线；任务十一至任务十二属于仓库外调参记录和移植综合设计。
 
 任务一：比较固件参数来源。
 
@@ -457,14 +1088,46 @@ eepromConfig.rateLimit = 45.0f * D2R
 任务五：观察限幅影响。
 
 降低 `cmd_limit` 或 `rate_limit`，观察响应变慢是否来自限幅，而不是 PID 参数本身。
-验收依据是表格分别记录 `pidCmd[]` 命令限幅、`outputRate[]` 变化率限制、工具模型限制和固件三轴速率限制差异。
+验收依据是表格分别记录原始 PID 输出、命令限幅后输出、最终控制输出、`outputRate[]`
+变化率限制、工具模型限制和固件三轴速率限制差异。当前脚本未单独绘制原始 PID 输出时，
+应在结论中标明观察不足，不能直接判断“没有饱和”。
 
-任务六：制定仓库外实测调参记录表。
+任务六：复核积分与D项边界。
 
-记录轴、P/I/D、限幅、速率限制、姿态角表现、`pidCmd[]`、`outputRate[]`、电机温升和是否震荡。
+在 `pid.c` 中找到积分限幅、D 项限幅、低通滤波和三点平均代码。
+验收依据是写出 `Iacc` 限幅、`d_raw` 限幅、`alpha` 计算和 `d_avg` 计算四项；同时说明 `windupGuard` 当前没有被 `updatePID()` 使用。
+
+任务七：复核参数修改前后的PID状态。
+
+在 `pid.c` 中找到 `iTerm`、`lastDcalcValue`、`lastDterm`、`lastLastDterm`
+的更新位置，以及 `zeroPIDintegralError()`、`zeroPIDstates()` 的清零路径。
+验收依据是记录表能区分“清零后测试”和“在线连续修改测试”；
+同时记录 `pidCmdPrev[]` 是否会继续影响速率限制。
+
+任务八：设计调参基线和回滚表。
+
+表格至少包含被测轴、固件版本、P/I/D、`cmd_limit`、`rateLimit`、
+清零状态、`pidCmdPrev[]`、门控状态、停止条件、回滚参数和异常触发原因。
+验收依据是任意一次调参失败后，都能根据表格恢复到上一组有记录支撑的参数。
+
+任务九：复核500Hz时间预算。
+
+在固件中观察 `dt500Hz` 和 `executionTime500Hz`，并记录调参前后的变化。
+验收依据是记录表包含目标周期 0.002s、实际 `dt500Hz`、500Hz 分支耗时和是否存在串口/I2C阻塞怀疑项；没有板上记录时保持【待验证】。
+
+任务十：复核仿真对象参数。
+
+在 `tools/pid_tuning_sim.py` 中找到 `wn`、`zeta` 和 `plant_gain` 的默认值，
+并说明它们只属于简化二阶模型。
+验收依据是记录表明确区分“仿真假设参数”和“仓库外辨识参数”；
+没有输入响应日志时，不能把这三个数写成实物标定结果。
+
+任务十一：制定仓库外实测调参记录表。
+
+记录轴、P/I/D、PID历史状态、限幅、速率限制、姿态角表现、`pidCmd[]`、`outputRate[]`、电机温升和是否震荡。
 验收依据是记录表明确每次只改一个轴、一个参数；若没有仓库外实测条件或安全测试条件，只形成记录模板和风险清单，仓库外实测结论保持【待验证】。
 
-任务七：设计移植检查清单。
+任务十二：设计移植检查清单。
 
 把本教材中的平台、时钟、I2C、姿态、PID、PWM、门控、诊断和调参步骤整理成移植到新板子的检查顺序。
 验收依据是清单按平台、时钟、I2C、姿态、PID、PWM、门控、诊断、调参顺序排列，并标出下载调试、电机诊断和异常门控三个不可跳过节点。
@@ -479,6 +1142,16 @@ eepromConfig.rateLimit = 45.0f * D2R
 6. 如果 I 项导致开机后缓慢偏转，应如何结合启动门控和积分清零排查。
 7. 如果要设计类似三轴控制系统，哪些模块可以复用，哪些必须重新标定和验证。
 8. 如果一组参数在仿真和实物上的表现不同，教材应先怀疑哪几类证据缺失。
+9. 为什么 `windupGuard` 字段存在，不等于当前积分限幅一定由它决定。
+10. 为什么 D 项跨过 `±pi` 边界时，要特别检查角度差分包裹。
+11. 为什么 Cortex-M3 软浮点调试构建下，调参还要观察 500Hz 执行耗时。
+12. 如果 Roll 和 Pitch 的响应速度不同，如何区分 PID 参数差异和速率限制实现差异。
+13. 为什么 `wn/zeta/plant_gain` 不能在没有输入响应记录时写成实物标定参数。
+14. 为什么只看仿真工具的最终 `control` 曲线，不能完整判断原始 PID 是否已经饱和。
+15. 为什么在线修改 PID 参数时，要同时记录 `iTerm`、D 项历史和 `pidCmdPrev[]`。
+16. 为什么没有调参基线时，不能说某一组参数一定比上一组更好。
+17. 为什么持续撞限幅时，继续增大 P 可能让现象更难解释。
+18. 为什么回滚点属于调参安全设计，而不只是文档记录习惯。
 
 ## 13. 本章总结
 
@@ -490,6 +1163,16 @@ eepromConfig.rateLimit = 45.0f * D2R
 - 工具会从 `main.c`、`computeMotorCommands.c` 和 `config.c` 解析 PID、命令限幅和速率限制。
 - 工具的 D 项滤波、积分限幅、D 项限幅和异常回退与固件有对应关系。
 - 工具使用简化二阶对象模型，只能预演趋势，不能替代仓库外实测验证。
+- 固件 `updatePID()` 的积分限幅当前是硬编码 `[-10, 10]`，不是由 `windupGuard` 字段直接决定。
+- Roll 的速率限制使用 `rateLimit * safeDt`，Pitch/Yaw 当前直接使用 `rateLimit`，三轴限速强度不能混为一谈。
+- 仿真脚本与固件在 D 项初值和角度差分包裹上存在细节差异，D 项尖峰要回到固件变量验证。
+- `wn`、`zeta` 和 `plant_gain` 是仿真对象参数，不是固件参数，也不是仓库内已证明的实物辨识结果。
+- 脚本当前绘制最终 `control`，调参时应区分原始 PID 输出、命令限幅后输出和最终应用输出。
+- 仿真每次运行默认从干净 `PIDRuntime` 和对象状态开始，固件在线修改参数时 PID 历史状态不会自动清零。
+- `zeroPIDintegralError()`、`zeroPIDstates()` 和轴级状态清零会影响调参可比性，记录中必须说明是否使用。
+- 每轮调参应有基线、单变量改动、指标化判定、停止条件和回滚点。
+- 当前脚本可提供目标、反馈和最终控制输出；原始 PID、限幅后输出和限速触发需要额外记录。
+- Debug 构建使用 Cortex-M3 软浮点和 `-O0`，调参时要同时观察 `dt500Hz` 与 `executionTime500Hz`。
 - 固件中的 PID 效果不仅由 P/I/D 决定，还受门控、限幅、速率限制、电角换算和硬件映射影响。
 - 推荐路线是先确认硬件和姿态，再用仿真预演，最后进行小步仓库外实测验证。
 
@@ -497,6 +1180,7 @@ eepromConfig.rateLimit = 45.0f * D2R
 
 - 本章提供调参路线和优化顺序，不给出可直接套用到实物的最终参数。
 - 仿真结果、单轴点测和短时稳定都不能替代逐轴记录、回退点和仓库外长期验证。
+- 真实闭环稳定性、方向正确性、不过热和抗扰性能仍需仓库外安全实测证据。
 
 至此，第01章到第34章形成了从平台、外设、传感器、姿态、控制、电机、调试到优化的完整学习主线。后续继续打磨时，应优先复查事实边界、证据链和实践任务，而不是盲目扩写新主题。
 
@@ -518,19 +1202,52 @@ eepromConfig.rateLimit = 45.0f * D2R
 - 文件：`Drivers/SRC/Src/computeMotorCommands.c`
 - 文件：`Drivers/SRC/Src/config.c`
 - 文件：`Core/Src/main.c`
+- 文件：`Debug/makefile`
 - 函数：`parse_firmware_defaults()`
 - 函数：`update_pid()`
 - 函数：`run_simulation()`
 - 函数：`updatePID()`
 - 函数：`computeMotorCommands()`
+- 函数：`micros()`
+- 函数：`zeroPIDintegralError()`
+- 函数：`zeroPIDstates()`
+- 函数：`setPIDintegralError()`
+- 函数：`setPIDstates()`
 - 变量：`DT_DEFAULT`
 - 变量：`RC_D_FILTER`
+- 变量：`F_CUT`
+- 变量：`rc`
+- 变量：`iTerm`
+- 变量：`lastDcalcValue`
+- 变量：`lastDterm`
+- 变量：`lastLastDterm`
+- 变量：`windupGuard`
+- 变量：`holdIntegrators`
 - 变量：`cmd_limit`
 - 变量：`rate_limit`
+- 变量：`wn`
+- 变量：`zeta`
+- 变量：`plant_gain`
+- 变量：`theta`
+- 变量：`theta_dot`
+- 变量：`theta_ddot`
+- 变量：`control`
+- 变量：`target`
+- 变量：`actual`
 - 变量：`pidCmd[]`
+- 变量：`pidCmdPrev[]`
 - 变量：`outputRate[]`
+- 变量：`rollDiag.pidRaw`
+- 变量：`rollDiag.pidClamped`
+- 变量：`rollDiag.pidApplied`
+- 变量：`dt500Hz`
+- 变量：`executionTime500Hz`
+- 变量：`rollDiag.stepLimit`
 - 配置项：`eepromConfig.PID[]`
 - 配置项：`eepromConfig.rateLimit`
+- 配置项：`-mcpu=cortex-m3`
+- 配置项：`-mfloat-abi=soft`
+- 配置项：`-O0`
 
 质量自检：
 
