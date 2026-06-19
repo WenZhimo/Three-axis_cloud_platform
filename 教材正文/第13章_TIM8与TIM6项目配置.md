@@ -234,6 +234,10 @@ HAL_TIM_Base_Start_IT(&htim8)
 
 TIM6 当前章节只用到基础计数相关字段，不能把它写成 GPIO PWM 输出资源。
 
+还要补一条容易误判的边界：启动文件中有 `TIM6_IRQHandler` 向量项，CMSIS 设备头文件中也定义了 `TIM6_IRQn = 54`，并把 `TIM6_DAC_IRQn`、`TIM6_DAC_IRQHandler` 映射为 TIM6 的同一中断线/处理函数名。这说明芯片和启动文件具备 TIM6 中断入口框架，不说明当前项目已经把 TIM6 更新中断接入业务代码。
+
+当前工程没有在 `Core/Src/stm32f1xx_it.c` 中提供强定义的 `TIM6_IRQHandler()`，也没有在 `.ioc` 中看到 TIM6 NVIC 使能项。启动文件里的弱符号默认指向 `Default_Handler`，它更像“没有用户处理函数时的兜底入口”，不能当作 TIM6 已经参与调度的证据。
+
 ### 4. TIM6 在 `main.c` 中的出现位置
 
 `main()` 在外设初始化阶段调用 `MX_TIM6_Init()`。随后在系统准备就绪附近执行 `__HAL_TIM_SET_COUNTER(&htim6, 0)`。
@@ -318,6 +322,8 @@ USE_HAL_TIM_REGISTER_CALLBACKS == 0
 
 TIM6 也没有 `HAL_TIM_MspPostInit()` 引脚配置，因为基本定时器不承担普通外部 PWM 通道输出。本章要避免把“定时器”三个字自动等同于“PWM 输出”。
 
+从中断证据看，`HAL_TIM_Base_MspInit()` 的 TIM6 分支只启用了 TIM6 外设时钟，没有像 TIM8 分支那样调用 `HAL_NVIC_SetPriority()` 和 `HAL_NVIC_EnableIRQ()`。因此 TIM6 当前更接近“已初始化的基础计数资源”，而不是“已接入 NVIC 的周期中断资源”。
+
 ### 5. `main.c` 中的 TIM6 清零
 
 `main.c` 在 `systemReady = true` 之后调用 `__HAL_TIM_SET_COUNTER(&htim6, 0)`。这会把 TIM6 的计数器值写为 0。
@@ -349,6 +355,7 @@ TIM6 检查点：
 - `MX_TIM6_Init()` 是否配置 Prescaler 35、Period 65535。
 - `main.c` 是否调用 `MX_TIM6_Init()`。
 - `main.c` 是否调用 `__HAL_TIM_SET_COUNTER(&htim6, 0)`。
+- 启动文件和 CMSIS 是否只是提供了 TIM6 中断向量/别名，而项目侧是否真的提供 `TIM6_IRQHandler()` 强实现并启用 TIM6 NVIC。当前复查结果是未发现项目侧 TIM6 IRQ 接入证据。
 - 运行中若断点可用，再检查 `TIM6->CR1.CEN`、`TIM6->DIER.UIE` 和 `TIM6->CNT` 是否真的随时间变化。
 - 项目中是否存在 `HAL_TIM_Base_Start(&htim6)`、`HAL_TIM_Base_Start_IT(&htim6)` 或读取 TIM6 计数值。当前复查结果是未发现。
 
@@ -405,6 +412,8 @@ TIM6 检查点：
 
 这一点和第04章的“对象进入链接不等于业务调用”很像。
 计数器存在、被清零和正在承担调度，是三件不同的事。
+
+同理，启动文件中存在 `TIM6_IRQHandler` 弱符号，也不等于项目写了 TIM6 中断业务。弱符号默认连到 `Default_Handler`，只有项目提供同名强函数、启用 NVIC、打开 `DIER.UIE` 并启动计数器后，TIM6 更新中断链路才具备可分析的业务意义。
 
 ### 4. TIM8 的 Break/DeadTime 配置有什么意义？
 
@@ -506,6 +515,7 @@ Break/DeadTime 常见于半桥、全桥或互补 PWM 功率级，目标是避免
 - 当前仓库未发现 TIM8 `DIER.UIE` 由用户启动路径打开的证据，也未发现 TIM8 `CR1.CEN` 运行证据。
 - 当前工程未发现 `HAL_TIM_PWM_Start(&htim8, ...)`，因此不能把 TIM8 写成主 PWM 输出路径。
 - TIM6 配置了 Prescaler 35、Period 65535，并在 `main.c` 中被清零计数器。
+- 启动文件和 CMSIS 提供 TIM6 中断向量及 `TIM6_DAC` 别名，但当前项目未发现 `TIM6_IRQHandler()` 强实现、TIM6 NVIC 使能、`DIER.UIE` 启动路径或 TIM6 中断业务代码。
 - 当前工程未发现 TIM6 启动或读取证据，因此不能把 TIM6 写成主时间基准。
 - 当前 `SystemClock_Config()` 设置 APB1 分频为 2、APB2 分频为 1；结合 STM32F1 APB 定时器时钟规则，TIM6 和 TIM8 在本工程中都按 72MHz 定时器输入时钟推导。
 

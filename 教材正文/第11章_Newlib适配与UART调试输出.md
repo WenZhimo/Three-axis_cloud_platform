@@ -343,6 +343,10 @@ t_100_char ≈ 8.68ms
 
 本章只分析这条输出路径：`HAL_GetTick()` 提供低频触发依据，`printf()` 提供格式化，USART3 负责发送。10Hz 低频任务的完整系统作用会在第32章展开。
 
+还要补一条容易漏看的证据：`main.c` 在 500Hz 分支里还有一次性的 `printf(">>> AHRS 收敛完成，俯仰轴控制已使能。\\r\\n");`。
+它不是周期性高频日志，而是状态切换时的单次提示，但它仍然运行在 500Hz 控制路径里，属于“偶发调试打印”而不是“完全无害的空操作”。
+教材应把这种一次性标记和 10Hz 周期打印分开：前者只在收敛完成那一帧触发，后者才是常规观察通道。
+
 ### 7. MPU6050 文件中的打印证据
 
 `mpu6050.c` 在器件 ID 检查、重试、关键错误和 VOFA 风格浮点输出中调用 `printf()`。`mpu6050Calibration.c` 在温度漂移校准阶段输出状态和结果。
@@ -453,6 +457,8 @@ t_100_char ≈ 8.68ms
 从当前源码看，USB CDC 侧存在 `CDC_Transmit_FS()`，内部调用 `USBD_CDC_SetTxBuffer()` 和 `USBD_CDC_TransmitPacket()`。
 
 但 `_write()` 和 `fputc()` 没有调用它，因此不能把 USB 虚拟串口当作当前 `printf()` 后端。
+同样，`USB_DEVICE/Target/usbd_conf.h` 里的 `USBD_UsrLog()`、`USBD_ErrLog()` 和 `USBD_DbgLog()` 虽然内部也调用 `printf()`，
+但它们调用到的仍是本章前面那条 Newlib -> `_write()` -> USART3 链路；这些宏只能证明 USB 中间件在借用现有调试通道，不证明 USB CDC 已成为输出后端。
 
 ### 7. `.map` 文件能证明什么？
 
