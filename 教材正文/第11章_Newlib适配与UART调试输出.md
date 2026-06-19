@@ -97,6 +97,8 @@ printf()
 
 因此，输出成本包含三部分：浮点/整数格式化成本、每字节 HAL 调用和状态检查成本、串口线路本身的发送时间。
 
+继续把这个知识点拆细，还要区分“UART 硬件逐位发送”和“软件逐字节调用 HAL”。`HAL_UART_Transmit(&huart3, ..., Size)` 内部会在每个数据写入前等待 `UART_FLAG_TXE`，但只在该次函数调用的末尾等待一次 `UART_FLAG_TC`。如果把 `len` 字节一次交给 HAL，TC 完成等待发生在整段缓冲区末尾；当前 `_write()` 把 `Size` 固定为 1，循环调用 `len` 次，所以每个字符都会经历一次 `READY -> BUSY_TX -> READY` 状态切换和一次 TC 完成等待。
+
 第四层是引脚与重映射。
 
 `.ioc` 将 PC10 标为 USART3_TX、PC11 标为 USART3_RX，并配置 USART3 异步模式。
@@ -223,6 +225,33 @@ HAL 源码中 `HAL_UART_Transmit()` 先要求 `huart->gState == HAL_UART_STATE_R
 
 每写入一个字节后，HAL 更新 `TxXferCount`。全部字节写完后，它继续等待发送完成标志 `UART_FLAG_TC`。完成后，`gState` 回到 `HAL_UART_STATE_READY` 并返回 `HAL_OK`。
 
+因此，对一次长度为 `N` 的阻塞发送调用，可以把 HAL 内部等待点写成：
+
+```text
+HAL_UART_Transmit(buf, N):
+  TXE wait: N times
+  TC wait:  1 time
+  gState:   READY -> BUSY_TX -> READY, 1 round trip
+```
+
+但当前项目的 `_write()` 不是上述形式，而是：
+
+```text
+for each character:
+  HAL_UART_Transmit(one_char, 1)
+```
+
+所以对同样的 `N` 个字符，当前路径更接近：
+
+```text
+current _write(buf, N):
+  TXE wait: N times
+  TC wait:  N times
+  gState:   READY -> BUSY_TX -> READY, N round trips
+```
+
+这不是功能错误，而是调试输出实现的工程取舍：代码简单、行为直观，但在长日志或高频路径中会放大阻塞成本。
+
 如果等待超时，HAL 会把状态恢复为 READY 并返回 `HAL_TIMEOUT`。
 
 如果进入函数时 UART 已经在发送，则返回 `HAL_BUSY`。本项目传入的超时参数是 `0xFFFF`，单位由 HAL 毫秒 tick 管理；在 1ms tick 下约等于 65.535s。
@@ -283,6 +312,8 @@ t_100_char ≈ 8.68ms
 这还没有计算 `printf()` 格式化、逐字节函数调用、HAL 等待标志和中断插入造成的额外开销。因此，10Hz 打印可以作为观察通道；若把长字符串直接放进 500Hz 控制循环，2ms 帧预算很容易被串口输出吞掉。
 
 把同样的 100 字符输出放在 10Hz 低频任务中，纯线路时间约占 100ms 周期的 8.68%；放在 500Hz 控制帧中，则纯线路时间已经超过 2ms 周期的 4 倍。这个对比解释了为什么项目把连续状态输出放在低频任务中，而不是放进 500Hz 实时控制主路径。
+
+还要注意，8.68ms 只是 100 字符在 115200 8N1 下的线路发送下限。当前逐字节 HAL 调用会额外叠加 `N` 次函数调用、`N` 次 `gState` 往返和 `N` 次 TC 轮询路径。若未来要把调试输出做成更可靠的日志通道，第一层可选优化是把 `_write()` 改为一次性调用 `HAL_UART_Transmit(&huart3, (uint8_t *)ptr, len, timeout)`；更进一步才是环形缓冲区配合 UART IT/DMA。前者降低软件调用和 TC 重复等待，后者降低实时路径阻塞，但都会引入返回值、缓冲区满、并发访问和发送完成回调等新设计问题。
 
 当前 `_write()` 忽略 HAL 返回值并直接返回 `len`，所以“打印函数返回成功”不能等价于“所有字符都已被主机端看到”。主机端终端、接线、USB 转串口和接收日志仍是【待验证】。
 
@@ -514,6 +545,7 @@ t_100_char ≈ 8.68ms
 - 当前 Debug map 证明最终 `_write` 符号来自 `./Core/Src/usart.o`，浮点格式化符号来自 `libc_nano.a`。
 - `usart.c` 中的强 `_write()` 和 `fputc()` 都通过 `HAL_UART_Transmit(&huart3, ...)` 输出字符。
 - `HAL_UART_Transmit()` 是阻塞发送路径，内部等待 TXE 和 TC 标志，并通过 `gState` 管理 READY/BUSY_TX 状态。
+- 当前 `_write()` 逐字节调用 `HAL_UART_Transmit(..., Size=1)`，会让 TC 等待和 `gState` 状态切换按字符重复出现。
 - 115200、8N1 下单字符纯线路时间约 86.8us，长日志可能明显占用控制循环时间预算。
 - 36MHz APB1 与 115200 baud 会经过 BRR 量化，当前计算误差约为 +0.16%，需要理解为时钟和寄存器分辨率共同决定。
 - `.cproject` 和 `Debug/makefile` 启用了 newlib-nano 浮点格式化支持。

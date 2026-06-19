@@ -890,6 +890,32 @@ dTerm clamp to [-300, 300]
 output = P * error + I * iTerm + D * dAverage
 ```
 
+如果把源码中的滤波部分单独展开，可以得到：
+
+```text
+rc = 1 / (2π * F_CUT)
+alpha[k] = deltaT[k] / (rc + deltaT[k])
+D_f[k] = D_f[k-1] + alpha[k] * (D_raw[k] - D_f[k-1])
+D_avg[k] = (D_f[k] + D_f[k-1] + D_f[k-2]) / 3
+```
+
+其中 `D_raw` 对应限幅后的 `dTerm`，`D_f` 对应 `dTermFiltered`，
+`D_avg` 对应最终进入输出公式的 `dAverage`。这说明当前 D 项不是“误差差分后立刻乘以 D”，
+而是先经过一阶低通滤波，再与前两帧滤波结果做三点平均。
+
+当前 `pid.c` 中 `F_CUT = 20.0f`。若 `deltaT` 约为 0.002s，则：
+
+```text
+rc = 1 / (2π * 20) ~= 0.00796s
+alpha = 0.002 / (0.00796 + 0.002) ~= 0.201
+```
+
+`alpha` 越接近 0，滤波输出越依赖上一帧；`alpha` 越接近 1，滤波输出越接近当前原始 D 项。
+因此 `deltaT` 不只影响 `dTerm = Δerror / deltaT`，也会改变 D 项低通滤波的响应速度。
+当 `updatePID()` 把异常 `deltaT` 回退为 `0.002f` 时，D 项斜率计算和滤波系数会同时使用这个回退值。
+调试 D 项噪声或迟滞时，必须同时记录 `deltaT`、`dTerm`、`dTermFiltered`、`lastDterm`、
+`lastLastDterm` 和 `dAverage`，否则容易把“微分增益太大”和“滤波状态滞后”混为一谈。
+
 最终 `output` 如果是 NaN 或 Inf，也会被置为 0。
 这些防护能降低异常数值继续传播的风险，但它们不等于闭环稳定性证明。
 
@@ -1216,7 +1242,16 @@ Pitch/Yaw 分支则直接把 `pidCmd - pidCmdPrev` 与 `eepromConfig.rateLimit` 
 验收依据是能说明 `lastDcalcValue == 0.0f` 的初始化边界、
 `[-300, 300]` 的 D 项限幅，以及 NaN/Inf 置零只属于数值防护。
 
-任务十七：验证输出速率限制的单位语义。
+任务十七：验证 D 项滤波系数和三点平均。
+
+记录 `F_CUT`、`rc`、`deltaT`、`alpha = deltaT / (rc + deltaT)`、
+`dTerm`、`dTermFiltered`、`lastDterm`、`lastLastDterm` 和 `dAverage`。
+在 `deltaT ~= 0.002s` 时计算 `alpha` 的数量级，再观察异常 `deltaT`
+回退为 `0.002f` 后滤波系数是否同步回退。
+验收依据是能说明 D 项从原始差分到 `dAverage` 的完整路径，
+并能区分“D 增益设置问题”“原始微分噪声问题”和“滤波状态滞后问题”。
+
+任务十八：验证输出速率限制的单位语义。
 
 分别记录 Roll 后续 PID 分支、Pitch 分支和 Yaw 分支中的
 `pidCmdPrev[]`、`pidCmd[]`、`outputRate[]`、`eepromConfig.rateLimit`
@@ -1253,7 +1288,8 @@ Pitch/Yaw 分支则直接把 `pidCmd - pidCmdPrev` 与 `eepromConfig.rateLimit` 
 19. 为什么 Roll 分支中的 `holdIntegrators` 可能影响同一帧后续 Pitch/Yaw 的积分暂停。
 20. 为什么用 `0.0f` 作为 D 项历史初始化哨兵会带来边界歧义。
 21. 为什么 D 项和输出的 NaN/Inf 防护只能证明数值被兜底，不能证明闭环稳定。
-22. 为什么同一个 `rateLimit` 字段在 Roll 与 Pitch/Yaw 中是否乘以 `dt`，会影响你对“速率限制”的工程判断。
+22. 为什么 D 项限幅之后仍然要理解低通滤波和三点平均，而不能只看原始 `dTerm`。
+23. 为什么同一个 `rateLimit` 字段在 Roll 与 Pitch/Yaw 中是否乘以 `dt`，会影响你对“速率限制”的工程判断。
 
 ## 13. 本章总结
 
@@ -1278,6 +1314,7 @@ Pitch/Yaw 分支则直接把 `pidCmd - pidCmdPrev` 与 `eepromConfig.rateLimit` 
 - Roll 后续 PID 分支可能通过全局 `holdIntegrators` 影响同一帧后续 Pitch/Yaw 的积分暂停【待验证】。
 - `lastDcalcValue == 0.0f` 同时承担初始化判断和值存储角色，存在 D 项哨兵值边界。
 - 原始 `dTerm` 会被限制到 `[-300, 300]`，最终输出 NaN/Inf 会被置 0。
+- `dTerm` 还会经过 `alpha = deltaT / (rc + deltaT)` 的一阶低通滤波和三点平均，最终以 `dAverage` 进入输出公式。
 - 当前 `updatePID()` 是位置式离散 PID，不是增量式 PID。
 - `pidCmdPrev[]` 和 `outputRate[]` 是 PID 后级输出约束，其中 Roll 后续 PID 分支使用 `rateLimit * safeDt`，Pitch/Yaw 当前直接使用 `rateLimit`，存在单位语义边界【待验证】。
 - 当前控制链路是姿态反馈闭环，不是开环固定输出。
@@ -1286,15 +1323,16 @@ Pitch/Yaw 分支则直接把 `pidCmd - pidCmdPrev` 与 `eepromConfig.rateLimit` 
 - Roll 的 PID 调用受 `return_state_roll` 状态分支影响，不能写成无条件每帧同样调用。
 - `zeroPIDintegralError()` 和 `zeroPIDstates()` 在 AHRS 收敛后用于清空 PID 历史状态。
 
-本章保留十一个边界：
+本章保留十二个边界：
 
-- D 项滤波、目标角斜坡、输出限幅和积分抗饱和留到第28章展开。
+- D 项滤波的调参效果、目标角斜坡、输出限幅和积分抗饱和留到第28章展开。
 - 机械角到电角转换和三相 PWM 输出留到后续电机章节展开。
 - 当前 PID 参数存在 `config.c` 默认值和 `main.c` 调试覆盖值并存的情况，分析运行行为时必须以实际写入顺序为准。
 - `windupGuard` 是配置字段，但当前积分限幅执行来源是 `updatePID()` 内部固定常数。
 - Pitch/Roll 当前 `I=0.0` 时，`iTerm` 状态更新不等于输出积分项已经生效。
 - `holdIntegrators` 的同帧跨轴影响需要轴使能、Roll 分支状态和实测日志共同确认【待验证】。
 - `lastDcalcValue == 0.0f` 的哨兵值写法不能替代独立初始化有效标志。
+- D 项滤波系数由 `deltaT` 参与计算，异常 `deltaT` 回退会同时影响微分斜率和滤波响应。
 - `pidCmdPrev[]` 和 `outputRate[]` 属于 PID 后级输出约束，不改变 `updatePID()` 的位置式 PID 属性。
 - 同一 `rateLimit` 字段在 Roll 与 Pitch/Yaw 输出速率限制中的 `dt` 使用方式不同，是否为有意轴差异需要设计意图或实测日志确认【待验证】。
 - LQR/MPC 只能作为未来架构迁移讨论，不能写成当前项目采用的控制方法。
