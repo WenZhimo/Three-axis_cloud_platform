@@ -468,7 +468,7 @@ t_100_char ≈ 8.68ms
 同样，`USB_DEVICE/Target/usbd_conf.h` 里的 `USBD_UsrLog()`、`USBD_ErrLog()` 和 `USBD_DbgLog()` 虽然内部也调用 `printf()`，
 但它们调用到的仍是本章前面那条 Newlib -> `_write()` -> USART3 链路；这些宏只能证明 USB 中间件在借用现有调试通道，不证明 USB CDC 已成为输出后端。
 
-### 7. `.map` 文件能证明什么？
+### 7. `.map` / `.list` / `.su` / `.cyclo` 文件能证明什么？
 
 触发条件：源码里同时存在 `syscalls.c` 的弱 `_write()` 和 `usart.c` 的强 `_write()`，读者仍不确定最终链接结果。
 
@@ -476,7 +476,11 @@ t_100_char ≈ 8.68ms
 
 当前 Debug map 中，最终地址上的 `_write` 来自 `./Core/Src/usart.o`，并且 `_printf_float` 来自 `libc_nano.a`。这能证明当前 Debug 固件确实拉入了 USART3 输出重定向和浮点格式化支持。
 
-边界是：`.map` 只对应某一次构建配置。Release、不同工具链版本或清理后重新生成的产物，都需要重新检查对应 map。
+`.list` 能继续把这条链路拆到反汇编层：`main()` 中能看到对 `MX_USART3_UART_Init()` 的调用，`_write_r` 中能看到跳转到项目 `_write()`，`Core/Src/usart.c` 的 `_write()` 中能看到循环调用 `HAL_UART_Transmit()`，`_sbrk_r` 中也能看到跳转到项目 `_sbrk()`。这比 `.map` 更接近“调用边是否存在”，但它仍然是构建后的静态证据，不是某次运行的串口日志。
+
+`.su` 和 `.cyclo` 则提供另一类边界证据：当前构建显示 `usart.c` 的 `_write()` 静态栈估算为 32 字节、圈复杂度为 2，`fputc()` 静态栈估算为 16 字节、圈复杂度为 1，HAL 的 `HAL_UART_Transmit()` 静态栈估算为 48 字节、圈复杂度为 10。这些数字能帮助读者理解阻塞发送路径的静态复杂度和栈预算入口，但不能替代运行时最大栈水位，也不能证明实际输出没有超时或丢失。
+
+边界是：这些构建产物只对应某一次构建配置。Release、不同工具链版本或清理后重新生成的产物，都需要重新检查对应 `.map` / `.list` / `.su` / `.cyclo`。
 
 ### 8. 启用了 `_scanf_float` 是否等于 UART 输入已经可用？
 
@@ -578,6 +582,7 @@ t_100_char ≈ 8.68ms
 - 当前 Debug map 显示浮点格式化相关库成员会拉入 `_dtoa_r`、`malloc`、`_malloc_r` 和 `_sbrk_r` 等符号。
 - `-u _scanf_float` 只说明浮点扫描库能力被链接，不证明 UART 标准输入已经实现。
 - `main.c`、`mpu6050.c` 和 `mpu6050Calibration.c` 中的 `printf()` 是项目调试观察的直接证据。
+- `.list` 能把 `_write_r -> _write -> HAL_UART_Transmit()` 和 `_sbrk_r -> _sbrk()` 展开到反汇编调用边；`.su` / `.cyclo` 能给出 `_write()`、`fputc()`、`_sbrk()` 与 `HAL_UART_Transmit()` 的静态栈和圈复杂度估算，但这些都不能证明某次运行的串口输出、堆峰值或栈水位已经安全。
 
 本章边界：
 
@@ -618,6 +623,15 @@ t_100_char ≈ 8.68ms
 - `.cproject`
 - `Debug/makefile`
 - `Debug/Three-axis_cloud_platformV2.map`
+- `Debug/Three-axis_cloud_platformV2.list`
+- `Debug/Core/Src/usart.su`
+- `Debug/Core/Src/usart.cyclo`
+- `Debug/Core/Src/syscalls.su`
+- `Debug/Core/Src/syscalls.cyclo`
+- `Debug/Core/Src/sysmem.su`
+- `Debug/Core/Src/sysmem.cyclo`
+- `Debug/Drivers/STM32F1xx_HAL_Driver/Src/stm32f1xx_hal_uart.su`
+- `Debug/Drivers/STM32F1xx_HAL_Driver/Src/stm32f1xx_hal_uart.cyclo`
 - `Drivers/STM32F1xx_HAL_Driver/Src/stm32f1xx_hal_uart.c`
 - `Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_uart.h`
 - `Drivers/CustomDrivers/Src/mpu6050.c`
