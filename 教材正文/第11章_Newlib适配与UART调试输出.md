@@ -57,6 +57,8 @@
 - 串口帧时间：115200、8N1 表示每个字符约 10bit，纯线路发送时间约为 86.8us/字符。
 - 浮点打印支持：`.cproject` 和 `Debug/makefile` 中启用 `-u _printf_float`，使 newlib-nano 支持 `%f` 等浮点输出格式。
 - map 文件：链接器生成的符号落点记录，可用于确认最终 `_write` 来自 `usart.o` 还是 `syscalls.o`。
+- 符号拉入：链接器为了满足未解析符号或库内依赖，把 archive 中的目标文件纳入最终 ELF；它证明能力和代码存在，不等于每次运行都会执行其中所有分支。
+- 运行路径证据：断点、日志、水位、返回值或现场记录，用于证明某次具体输出是否真的进入了某个库函数、堆分配路径或异常分支。
 
 这些概念对应正式知识点 `Newlib系统调用适配` 和 `UART串口调试输出`，不新增结构外知识点。
 
@@ -268,6 +270,10 @@ current _write(buf, N):
 
 当前 `.map` 文件进一步证明了浮点格式化代码被拉入链接结果：其中可以看到 `_printf_float` 和 `_scanf_float` 来自 `libc_nano.a`。这比只看 IDE 选项更接近最终固件事实。
 
+继续沿 map 文件向下读，还能看到浮点格式化不是一个孤立符号。当前构建中，`libc_a-nano-vfprintf_float.o` 因 `_printf_float` 被纳入，`libc_a-nano-vfscanf_float.o` 因 `_scanf_float` 被纳入；随后 map 又显示 `libc_a-dtoa.o` 提供 `_dtoa_r`，`libc_a-malloc.o` 提供 `malloc`，`libc_a-mallocr.o` 提供 `_malloc_r`，`libc_a-sbrkr.o` 提供 `_sbrk_r`。这条链路说明：浮点格式化能力可能把双精度转换、堆分配包装和 `_sbrk()` 底层入口一起带入 ELF。
+
+但是这里必须区分“符号被拉入”和“某次运行已经执行”。map 能证明这些库成员进入当前 Debug ELF，也能说明 Flash 体积和潜在 RAM/堆路径会受到影响；它不能单独证明每一次 `printf("%.6f", value)` 都触发了 `malloc()`、`_sbrk_r()` 或最坏栈峰值。要证明实际运行路径，需要在 `_printf_float`、`_dtoa_r`、`_malloc_r`、`_sbrk()` 等位置断点，或记录 `_sbrk()` 返回值、堆顶变化、栈水位和现场日志。
+
 但 `-u _scanf_float` 只代表浮点扫描格式支持被链接，不代表当前项目已经实现了可用的 UART 标准输入。`syscalls.c` 的弱 `_read()` 依赖 `__io_getchar()`，而本章证据链没有发现项目把 `__io_getchar()` 强实现为 USART3 接收。因此本章只能确认浮点输出链路，不能把 `scanf("%f")` 当作已验证功能。
 
 代价是浮点格式化会拉入更多库代码，并可能增加 Flash、栈和临时内存压力。`_sbrk()` 能约束堆增长边界，但不能证明 `printf("%f")` 的栈峰值已经安全；真实余量仍需 map、栈水位或运行记录【待验证】。
@@ -367,6 +373,7 @@ t_100_char ≈ 8.68ms
 - `mpu6050.c` 中器件 ID 检查和错误提示。
 - `main.c` 中约 100ms 输出一次的 Roll 姿态角和 `return_state_count_roll`。
 - `Debug/makefile` 中是否存在 `-u _printf_float`。
+- `Debug/Three-axis_cloud_platformV2.map` 中是否出现 `_printf_float`、`_dtoa_r`、`malloc`、`_malloc_r` 和 `_sbrk_r`。
 - `.ioc` 中 PC10/PC11 是否对应 USART3_TX/RX。
 
 定位顺序：
@@ -388,6 +395,7 @@ t_100_char ≈ 8.68ms
 - 记录 `.cproject`、`Debug/makefile` 与 `-u _printf_float`，把浮点输出能力和普通字符输出分开验证。
 - 若要验证波特率，可以在 PC10 上用逻辑分析仪测单字节帧宽；没有波形或终端日志时，波特率输出效果保持【待验证】。
 - 若要验证最终链接路径，检查 `Debug/Three-axis_cloud_platformV2.map` 中 `_write`、`_printf_float` 和 `_sbrk` 的符号来源；切换 Release 或重新生成工程后重新记录。
+- 若要验证浮点格式化是否实际触发堆路径，在 `_printf_float`、`_dtoa_r`、`_malloc_r`、`_sbrk()` 处设断点，并记录 `_sbrk()` 的 `incr`、返回值、`errno` 和当前堆顶；只看 map 不能证明运行路径。
 - 若要验证 `scanf()` 或串口输入，不要只看 `-u _scanf_float`，还要确认 `_read()` 或 `__io_getchar()` 是否已经接到 USART3 RX。
 - 串口线、USB 转串口模块、波特率、终端截图和接收日志属于仓库外实测证据，缺失时标记为【待验证】。
 - 若日志内容来自运行现场，应同时记录固件版本、编译配置和触发路径，避免把旧日志当作当前仓库证据。
@@ -478,6 +486,12 @@ t_100_char ≈ 8.68ms
 
 当前项目能看到 USART3 RX 引脚 PC11 被配置，也能看到 `syscalls.c` 中存在弱 `_read()`；但没有看到项目把 `__io_getchar()` 强实现为 UART 接收。因此本章只能说“构建配置启用了浮点 scanf 库能力”，不能说“标准输入已经通过 UART 工作”。
 
+### 9. map 中出现 `malloc` 和 `_sbrk_r`，是否说明每次 `printf()` 都会申请堆？
+
+不说明。当前 map 可以证明浮点格式化相关库成员已经进入 ELF，例如 `_dtoa_r`、`malloc`、`_malloc_r` 和 `_sbrk_r`。这说明当前固件具备这些库路径，也说明 Flash 体积和潜在堆路径需要被纳入分析。
+
+但 map 是链接结果，不是运行轨迹。某一次 `printf()` 是否真的进入堆分配路径，要看格式字符串、参数、库内部执行分支和现场状态。工程结论应写成“浮点格式化引入了可能触发堆路径的库代码”，不要直接写成“每次浮点打印都会 malloc”。要下运行结论，需要断点、日志、`_sbrk()` 调用记录或堆水位证据。
+
 ## 11. 实践任务
 
 开始任务前，先回到本章第8节定位 `_write()`、`fputc()`、`_sbrk()` 和浮点打印链接证据；第9节提供 UART 输出断点观察顺序。
@@ -522,6 +536,11 @@ t_100_char ≈ 8.68ms
 分别列出 `printf("%f")` 输出成立所需证据，以及 `scanf("%f")` 从 UART 输入成立所需证据。
 验收依据是表格能说明为什么 `-u _scanf_float` 不是 UART 标准输入已经可用的充分条件。
 
+任务九：区分浮点格式化符号拉入和运行执行。
+
+在 `Debug/Three-axis_cloud_platformV2.map` 中追踪 `_printf_float`、`_dtoa_r`、`malloc`、`_malloc_r`、`_sbrk_r` 和项目 `_sbrk()`。
+验收依据是证据表能分清“库成员进入 ELF”“可能影响 Flash/RAM/堆”和“某次运行实际进入堆路径”三类结论。
+
 实践边界：
 
 当前任务优先形成表格、链路图、搜索记录和计算过程。涉及 IDE 现场、构建日志、断点数值、外部波形、主机侧结果或硬件响应时，若没有截图、日志或仓库外实测证据，结论保持【待验证】。
@@ -538,6 +557,7 @@ t_100_char ≈ 8.68ms
 8. 为什么 map 文件能增强“强 `_write()` 生效”的证据强度？它又为什么不能替代现场串口接收验证？
 9. 为什么启用了 `-u _scanf_float`，仍不能把 `scanf("%f")` 当作已经接入 USART3 RX 的功能？
 10. 如果要把当前阻塞式调试输出升级为可靠日志通道，返回值、缓冲区、重试和超时策略分别需要补哪些设计？
+11. 为什么 map 中出现 `malloc` 和 `_sbrk_r`，仍不能证明每一次 `printf("%f")` 都发生了堆分配？
 
 ## 13. 本章总结
 
@@ -555,6 +575,7 @@ t_100_char ≈ 8.68ms
 - 115200、8N1 下单字符纯线路时间约 86.8us，长日志可能明显占用控制循环时间预算。
 - 36MHz APB1 与 115200 baud 会经过 BRR 量化，当前计算误差约为 +0.16%，需要理解为时钟和寄存器分辨率共同决定。
 - `.cproject` 和 `Debug/makefile` 启用了 newlib-nano 浮点格式化支持。
+- 当前 Debug map 显示浮点格式化相关库成员会拉入 `_dtoa_r`、`malloc`、`_malloc_r` 和 `_sbrk_r` 等符号。
 - `-u _scanf_float` 只说明浮点扫描库能力被链接，不证明 UART 标准输入已经实现。
 - `main.c`、`mpu6050.c` 和 `mpu6050Calibration.c` 中的 `printf()` 是项目调试观察的直接证据。
 
@@ -562,6 +583,7 @@ t_100_char ≈ 8.68ms
 
 - 本章证明 `printf()` 当前重定向到 USART3，不证明 USB CDC 已承担调试输出主线。
 - 串口输出通路成立仍依赖目标板接线、终端参数和阻塞发送耗时的仓库外观察。
+- map 能证明库成员进入当前 ELF，不能替代断点、堆顶变化、`_sbrk()` 返回值或运行水位证据。
 
 下一章可以进入通用定时器 PWM 输出。到这里，读者已经理解了项目如何观察内部状态；后续需要理解项目如何把控制结果输出到电机驱动相关的定时器通道。
 
@@ -614,6 +636,11 @@ t_100_char ≈ 8.68ms
 - `_read()`
 - `_sbrk()`
 - `_sbrk_r()`
+- `_printf_float`
+- `_scanf_float`
+- `_dtoa_r`
+- `malloc`
+- `_malloc_r`
 - `_fstat()`
 - `_isatty()`
 - `fputc()`
