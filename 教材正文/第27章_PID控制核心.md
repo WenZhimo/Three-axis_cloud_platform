@@ -630,6 +630,18 @@ updatePID(target_angle, pitch_angle, dt, holdIntegrators, &eepromConfig.PID[PITC
 
 这是一条较直观的姿态角闭环：目标 Pitch 角减当前 Pitch 角，得到 PID 补偿量。
 
+这里有一个容易误读的源码边界。Pitch 分支在调用 `updatePID()` 前也计算了：
+
+```c
+float error_mech = wrapToPif(target_angle - pitch_angle);
+```
+
+但当前后续调用仍然把 `target_angle` 和 `pitch_angle` 作为 `command/state` 实参传入
+`updatePID()`，没有把 `error_mech` 本身作为 PID 输入，也没有像 Yaw 分支那样用它构造
+`safe_target`。因此，当前 Pitch 的角度包裹主要依赖 `updatePID()` 内部
+`ANGULAR` 分支的 `standardRadianFormat(error)`。教材和调试记录不能只因为附近存在
+`error_mech = wrapToPif(...)`，就写成 Pitch 已经在控制层用 `wrapToPif()` 预处理了 PID 输入。
+
 ### 8.9 computeMotorCommands中的Yaw入口
 
 Yaw 轴在 `eepromConfig.yawEnabled == true` 时读取：
@@ -646,6 +658,8 @@ updatePID(safe_target, yaw_angle, dt, holdIntegrators, &eepromConfig.PID[YAW_PID
 ```
 
 这里的重点是：Yaw 不是直接把原始目标角丢给 PID，而是先做角度包裹，避免跨越 `±PI` 时出现长路径误差。
+这也和 Pitch 形成对照：两处都出现 `error_mech` 局部变量，但只有 Yaw 把包裹后的误差重新组合进
+`safe_target` 并作为 `updatePID()` 的 `command` 实参。
 
 ### 8.10 computeMotorCommands中的Roll入口
 
@@ -945,6 +959,10 @@ alpha = 0.002 / (0.00796 + 0.002) ~= 0.201
 第三步，确认输入来源。
 
 - Pitch/Yaw 调试时观察 `sensors.margAttitude500Hz[PITCH/YAW]`。
+- Pitch 分支要同时确认 `error_mech` 是否只是局部计算值；当前 PID 实参仍是
+  `target_angle` 和 `pitch_angle`。
+- Yaw 分支要确认 `error_mech` 是否进入 `safe_target`，再进入 `updatePID()` 的
+  `command` 实参。
 - Roll 调试时同时观察 `return_state_roll`，确认当前是否已经进入 Roll PID 分支。
 - 观察 `pointingCmd[]` 是否符合目标角预期。
 
@@ -1156,9 +1174,11 @@ Pitch/Yaw 分支则直接把 `pidCmd - pidCmdPrev` 与 `eepromConfig.rateLimit` 
 
 任务三：验证 Pitch PID 输入。
 
-观察 `pointingCmd[PITCH]`、`sensors.margAttitude500Hz[PITCH]`、`dt` 和 `pidCmd[PITCH]`。
-说明它们如何对应 `command/state/deltaT/output`。
-验收依据是 PID 输入表包含变量名、实参位置、角色和观察值。
+观察 `pointingCmd[PITCH]`、`sensors.margAttitude500Hz[PITCH]`、`error_mech`、`dt`
+和 `pidCmd[PITCH]`。
+说明 `target_angle/pitch_angle` 如何对应 `command/state`，并说明当前 `error_mech`
+没有作为 `updatePID()` 的实参。
+验收依据是 PID 输入表包含变量名、实参位置、角色、观察值和“是否实际进入 PID 实参”。
 
 任务四：验证 Yaw 角度包裹。
 
@@ -1320,6 +1340,8 @@ Pitch/Yaw 分支则直接把 `pidCmd - pidCmdPrev` 与 `eepromConfig.rateLimit` 
 - 当前控制链路是姿态反馈闭环，不是开环固定输出。
 - 当前仓库没有 LQR/MPC 所需的模型、矩阵、预测时域或优化求解器证据。
 - Pitch 和 Yaw 在轴使能时进入 PID 调用。
+- Pitch 分支虽然计算 `error_mech = wrapToPif(target_angle - pitch_angle)`，但当前没有把
+  `error_mech` 作为 PID 实参；Yaw 分支则用 `error_mech` 构造 `safe_target` 后进入 PID。
 - Roll 的 PID 调用受 `return_state_roll` 状态分支影响，不能写成无条件每帧同样调用。
 - `zeroPIDintegralError()` 和 `zeroPIDstates()` 在 AHRS 收敛后用于清空 PID 历史状态。
 
