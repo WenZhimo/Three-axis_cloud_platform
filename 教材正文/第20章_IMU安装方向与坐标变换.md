@@ -421,6 +421,28 @@ rawGyro[axis].value  = (int16_t)rotatedGyroData[axis];
 这种别名能减少数组转换代码，但会增加阅读风险。教材讲解时应明确“索引值相同不代表坐标语义自动正确”，
 真正让物理轴进入控制轴语义的是 `orientationMatrix` 和后续符号约定。
 
+### 8.8 构建产物证据边界
+
+本章的源码证据说明方向矩阵“应该如何工作”，当前 Debug 构建的 `.map` 和 `.list` 还能说明这些对象和路径已经进入最终固件。
+
+`Debug/Three-axis_cloud_platformV2.map` 中可以看到：
+
+- `.text.orientIMU` 进入最终镜像，符号地址为 `0x08002fa4`。
+- `.text.matrixMultiply` 进入最终镜像，符号地址为 `0x080029c8`。
+- `.text.MPU6050_Read_And_Process` 进入最终镜像，符号地址为 `0x08002dd4`。
+- `.bss.orientationMatrix` 进入 RAM 布局，符号地址为 `0x20000d24`。
+- `.bss.rawAccel` 与 `.bss.rawGyro` 也进入 RAM 布局，说明方向处理写回的全局原始量对象实际存在于当前镜像中。
+
+`Debug/Three-axis_cloud_platformV2.list` 中可以进一步看到：
+
+- `main()` 通过 `bl 8002fa4 <orientIMU>` 调用方向矩阵初始化函数。
+- `orientIMU()` 开头把 `eepromConfig.imuOrientation` 写成 `10`，随后再基于该字段进入 `switch`。
+- `MPU6050_Read_And_Process()` 中两次调用 `matrixMultiply()`，分别处理加速度和陀螺仪向量。
+- 同一函数在矩阵乘法后把 `rotatedAccelData[axis]` 和 `rotatedGyroData[axis]` 写回 `rawAccel[axis].value` 与 `rawGyro[axis].value`。
+- `MPU6050_ComputeStaticError()` 也调用 `MPU6050_Read_And_Process()`，说明启动静态误差估计会经过当前方向处理路径。
+
+因此，`.map/.list` 能证明当前构建包含方向矩阵对象、方向初始化函数、矩阵乘法函数、连续读取函数，以及 `main() -> orientIMU()` 和 `MPU6050_Read_And_Process() -> matrixMultiply() -> rawAccel/rawGyro` 的构建路径。它们不能证明 `case 10` 与实物安装方向一定一致，不能证明矩阵处理后的坐标与电机机械轴完全匹配，也不能证明标定参数已经按同一方向矩阵重新采集。这些运行时和硬件一致性结论仍需调试器记录、传感器姿态动作记录、电机响应记录或标定日志；缺少证据时保持【待验证】。
+
 ### 本节证据边界
 
 本节只根据当前仓库说明文件、函数、宏、变量和调用关系。运行时频率、外部硬件表现、主机侧现象、传感器方向、电机响应或真实控制效果仍需调试记录、日志或仓库外实测证据；缺少证据时保持【待验证】。
@@ -676,6 +698,7 @@ rawGyro[axis].value  = (int16_t)rotatedGyroData[axis];
 - 当前 `orientIMU()` 在 `MPU6050_Init()` 之前执行，使启动静态误差估计面对的是方向处理后的轴系。
 - `default` 分支不是单位矩阵，也不是有效方向矩阵，不能作为无旋转默认配置理解。
 - `rawAccel/rawGyro` 在进入物理量缩放前已经经过方向矩阵处理。
+- 当前 `.map/.list` 能证明 `orientationMatrix`、`orientIMU()`、`matrixMultiply()`、连续读取函数和方向处理写回路径进入最终构建。
 - 加速度和陀螺仪使用同一个 `orientationMatrix`，保证二者进入后续 AHRS 前处于同一软件坐标约定。
 - `matrixMultiply()` 是当前 `3x3 * 3x1`、`int16_t`、有符号置换矩阵场景下的简化工具，
   不能直接当作通用矩阵库或浮点小角度安装误差补偿器。
@@ -697,6 +720,7 @@ rawGyro[axis].value  = (int16_t)rotatedGyroData[axis];
 - University of Illinois ECE 470 `Planar Rigid-Body Motions and 3D rotation matrices`。
 - MathWorks Navigation Toolbox `SO(3) rotation` 文档。
 - 本仓库 `Drivers/CustomDrivers/Src/mpu6050.c` 和 `Core/Src/main.c`。
+- 本仓库 `Debug/Three-axis_cloud_platformV2.map` 和 `Debug/Three-axis_cloud_platformV2.list`。
 
 ### 章节尾部固定检查
 
@@ -714,6 +738,8 @@ rawGyro[axis].value  = (int16_t)rotatedGyroData[axis];
 - `Drivers/CustomDrivers/Inc/mpu6050.h`
 - `Drivers/SRC/Src/config.c`
 - `Core/Src/main.c`
+- `Debug/Three-axis_cloud_platformV2.map`
+- `Debug/Three-axis_cloud_platformV2.list`
 
 质量自检：
 
