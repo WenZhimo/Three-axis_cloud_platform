@@ -938,15 +938,63 @@ alpha = 0.002 / (0.00796 + 0.002) ~= 0.201
 电机方向、机械耦合、输出限幅后的实际力矩、姿态是否稳定，
 仍然需要第28章到第30章的链路分析和硬件实测证据【待验证】。
 
+### 8.19 构建产物证据边界
+
+前面的小节主要根据源码说明 PID 的数据结构、公式分支和调用关系。
+如果要确认这些路径是否真的进入当前 Debug 镜像，需要再看 `Debug/Three-axis_cloud_platformV2.map`
+和 `Debug/Three-axis_cloud_platformV2.list`，不能只停留在“源码里存在”。
+
+当前 `.map` 至少能证明以下符号已经被链接进最终镜像：
+
+| 符号或段 | 地址 | 证据含义 |
+|---|---:|---|
+| `wrapToPif` | `0x080042f4` | `computeMotorCommands.c` 中的多圈角度包裹 helper 进入镜像。 |
+| `computeMotorCommands` | `0x080043b4` | 500Hz 控制输出函数进入镜像。 |
+| `standardRadianFormat` | `0x08005250` | `pid.c` 中的 PID 内部角度包裹函数进入镜像。 |
+| `initPID` | `0x080052a4` | PID 状态初始化函数进入镜像。 |
+| `updatePID` | `0x08005334` | PID 主计算函数进入镜像。 |
+| `zeroPIDintegralError` | `0x0800578c` | 积分清零 helper 进入镜像。 |
+| `zeroPIDstates` | `0x08005814` | D 项历史状态清零 helper 进入镜像。 |
+| `.data.holdIntegrators` | `0x2000002c` | 跨轴积分暂停开关以全局数据进入 RAM 映像。 |
+| `.bss.eepromConfig` | `0x200003e0` | PID 参数所在配置对象进入 RAM 映像。 |
+| `.bss.outputRate` | `0x20000d8c` | 后级输出变化量数组进入 RAM 映像。 |
+| `.bss.pidCmd` | `0x20000d98` | PID 输出命令数组进入 RAM 映像。 |
+| `.bss.pidCmdPrev` | `0x20000da4` | 上一帧 PID 输出数组进入 RAM 映像。 |
+| `.bss.rollDiag` | `0x20000db0` | Roll 诊断结构体进入 RAM 映像。 |
+
+当前 `.list` 则能把“进入镜像”的符号继续落到反汇编调用点上：
+
+- `main()` 在 `0x08001550` 调用 `initPID()`。
+- AHRS 收敛后的启动门控路径在 `0x080018d4` 调用 `zeroPIDintegralError()`，
+  并在 `0x080018d8` 调用 `zeroPIDstates()`。
+- 500Hz 分支在 `0x08001900` 调用 `computeMotorCommands(dt500Hz)`。
+- `computeMotorCommands()` 的 Roll 分支在 `0x0800458e` 调用 `updatePID()`。
+- `computeMotorCommands()` 的 Pitch 分支在 `0x08004854` 调用 `updatePID()`。
+- `computeMotorCommands()` 的 Yaw 分支在 `0x08004a82` 调用 `updatePID()`。
+- `updatePID()` 内部可见多处 `standardRadianFormat()` 调用，例如 `0x080053be`、
+  `0x0800548c` 和 `0x080054ea`。
+- `computeMotorCommands()` 内部可见多处 `wrapToPif()` 调用，例如 `0x0800448c`、
+  `0x08004840` 和 `0x08004a62`。
+
+因此，`.map/.list` 能证明当前构建中确实存在 PID 初始化、状态清零、500Hz 调用、
+三轴 `updatePID()` 路径、角度包裹 helper 和后级输出状态对象。
+它们不能证明 PID 参数合理、闭环稳定、电机方向安全、机械耦合正确、D 项调参效果符合预期，
+也不能证明 `holdIntegrators` 的跨轴积分暂停在真实运行中一定触发。
+这些结论仍需要断点、日志、波形、硬件响应或仓库外实测记录支撑【待验证】。
+
 ### 本节证据边界
 
-本节只根据当前仓库说明文件、函数、宏、变量和调用关系。运行时频率、外部硬件表现、主机侧现象、传感器方向、电机响应或真实控制效果仍需调试记录、日志或仓库外实测证据；缺少证据时保持【待验证】。
+本节只根据当前仓库说明文件、函数、宏、变量、调用关系和当前 Debug 构建产物说明 PID 主链路。
+`.map/.list` 可以证明符号进入镜像和反汇编调用点存在，但不能证明运行时频率、外部硬件表现、
+传感器方向、电机响应、闭环稳定性或真实控制效果；这些结论仍需调试记录、日志或仓库外实测证据。
+缺少证据时保持【待验证】。
 
 ## 9. 调试方法
 
 第一步，确认 PID 是否初始化。
 
 - 在 `Core/Src/main.c` 中确认 `initPID()` 已经在进入主循环前调用。
+- 在 `Debug/Three-axis_cloud_platformV2.list` 中确认 `main()` 对 `initPID()` 的反汇编调用点仍存在。
 - 观察 `eepromConfig.PID[ROLL/PITCH/YAW]` 的 `iTerm` 和 D 项历史状态是否清零。
 
 第二步，确认当前运行参数。
@@ -969,6 +1017,7 @@ alpha = 0.002 / (0.00796 + 0.002) ~= 0.201
 第四步，确认时间步长。
 
 - 观察传入 `computeMotorCommands(dt500Hz)` 的 `dt500Hz`。
+- 对照 `.list` 中 `main()` 到 `computeMotorCommands(dt500Hz)` 的调用点，确认当前分析针对的是已链接的 500Hz 分支。
 - 观察 `updatePID()` 内部是否把异常 `deltaT` 回退为 `0.002f`。
 - 分别记录积分增量 `error * deltaT` 和微分斜率变化，确认时间步长对 I/D 两项的影响。
 
@@ -1344,6 +1393,10 @@ Pitch/Yaw 分支则直接把 `pidCmd - pidCmdPrev` 与 `eepromConfig.rateLimit` 
   `error_mech` 作为 PID 实参；Yaw 分支则用 `error_mech` 构造 `safe_target` 后进入 PID。
 - Roll 的 PID 调用受 `return_state_roll` 状态分支影响，不能写成无条件每帧同样调用。
 - `zeroPIDintegralError()` 和 `zeroPIDstates()` 在 AHRS 收敛后用于清空 PID 历史状态。
+- 当前 `.map/.list` 能证明 `initPID()`、`updatePID()`、`zeroPIDintegralError()`、
+  `zeroPIDstates()`、`computeMotorCommands()`、`standardRadianFormat()`、`wrapToPif()` 以及
+  `eepromConfig`、`holdIntegrators`、`pidCmd[]`、`pidCmdPrev[]`、`outputRate[]`、`rollDiag`
+  已进入当前 Debug 构建，并能看到 `main()` 与三轴 `updatePID()` 的反汇编调用点。
 
 本章保留十二个边界：
 
@@ -1358,7 +1411,7 @@ Pitch/Yaw 分支则直接把 `pidCmd - pidCmdPrev` 与 `eepromConfig.rateLimit` 
 - `pidCmdPrev[]` 和 `outputRate[]` 属于 PID 后级输出约束，不改变 `updatePID()` 的位置式 PID 属性。
 - 同一 `rateLimit` 字段在 Roll 与 Pitch/Yaw 输出速率限制中的 `dt` 使用方式不同，是否为有意轴差异需要设计意图或实测日志确认【待验证】。
 - LQR/MPC 只能作为未来架构迁移讨论，不能写成当前项目采用的控制方法。
-- 当前仓库能证明公式分支和变量状态，不能单独证明闭环稳定性；稳定性仍需硬件日志或测试记录【待验证】。
+- 当前仓库和 Debug 构建产物能证明公式分支、变量状态、符号进入镜像和反汇编调用点，不能单独证明闭环稳定性；稳定性仍需硬件日志或测试记录【待验证】。
 
 下一章将进入 `PID细节与输出约束`，进一步分析 D 项平滑、积分暂停、目标变化平滑、输出限幅和速率限制如何保护闭环控制不因瞬态误差或参数不当而失控。
 
@@ -1369,6 +1422,8 @@ Pitch/Yaw 分支则直接把 `pidCmd - pidCmdPrev` 与 `eepromConfig.rateLimit` 
 - 本仓库 `Drivers/SRC/Src/config.c`。
 - 本仓库 `Core/Src/main.c`。
 - 本仓库 `Drivers/SRC/Src/computeMotorCommands.c`。
+- 本仓库 `Debug/Three-axis_cloud_platformV2.map`。
+- 本仓库 `Debug/Three-axis_cloud_platformV2.list`。
 - K. J. Astrom and T. Hagglund, PID Controllers: Theory, Design, and Tuning:
   https://portal.research.lu.se/en/publications/pid-controllers-theory-design-and-tuning/
 - K. J. Astrom and T. Hagglund, Advanced PID Control, Chapter 1:
@@ -1393,8 +1448,20 @@ Pitch/Yaw 分支则直接把 `pidCmd - pidCmdPrev` 与 `eepromConfig.rateLimit` 
 - `Drivers/SRC/Src/config.c`
 - `Core/Src/main.c`
 - `Drivers/SRC/Src/computeMotorCommands.c`
+- `Debug/Three-axis_cloud_platformV2.map`
+- `Debug/Three-axis_cloud_platformV2.list`
+- 函数：`initPID()`
+- 函数：`updatePID()`
+- 函数：`zeroPIDintegralError()`
+- 函数：`zeroPIDstates()`
 - 函数：`standardRadianFormat()`
 - 函数：`wrapToPif()`
+- 全局对象：`eepromConfig`
+- 全局对象：`holdIntegrators`
+- 全局对象：`pidCmd[]`
+- 全局对象：`pidCmdPrev[]`
+- 全局对象：`outputRate[]`
+- 全局对象：`rollDiag`
 - 宏：`PI`
 - 宏：`TWO_PI`
 
