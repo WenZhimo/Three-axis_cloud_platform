@@ -322,6 +322,23 @@ TIM6 的配置意义留到第13章继续判断。
 
 如果只看 `main.c` 中的 `DWT->CYCCNT`，读者会知道项目读写了某个寄存器；如果再追踪到 `core_cm3.h`，读者才能确认它属于 Cortex-M3 内核 DWT 资源。
 
+### 7. 构建产物证据边界
+
+当前 Debug 构建产物还能把“源码中写了这些逻辑”和“这些逻辑进入了本次镜像”连接起来。
+
+`Debug/Three-axis_cloud_platformV2.map` 中可以看到 `DWT_Delay_us` 被分配到 `.text`，也能看到
+`deltaTime500Hz`、`executionTime500Hz` 和 `frame_500Hz` 被分配到 `.bss`。这说明这些函数和全局状态已经进入当前 Debug ELF 的代码段或未初始化数据段，而不是只停留在源码文本中。
+
+`Debug/Three-axis_cloud_platformV2.list` 中可以继续追踪到本次编译后的指令与源码对应关系：
+
+- `main()` 中写入 `CoreDebug->DEMCR`、清零 `DWT->CYCCNT`，并设置 `DWT->CTRL`。
+- `main()` 中使用 `micros()` 初始化 `previous500HzTime`，在 500Hz 分支里计算 `deltaTime500Hz`、`dt500Hz` 和 `executionTime500Hz`。
+- `mpu6050.c` 中静态零偏采样调用 `DWT_Delay_us(1000)`。
+- `DWT_Delay_us()` 的反汇编段读取 `DWT->CYCCNT`，并通过循环等待计数差达到目标值。
+
+这些构建产物证据能证明当前 Debug 镜像包含 DWT 启用、微秒时间戳消费、500Hz 时间差记录和 DWT 忙等函数调用路径。
+但它们不能证明板上运行的一定是同一个镜像，也不能证明 `CYCCNT` 在运行时确实递增、`DWT_Delay_us(1000)` 的墙钟等待精确等于 1000us、500Hz 周期没有抖动，或采样频率严格达到 1000Hz。上述运行时结论仍需要调试日志、寄存器观察、示波器或逻辑分析仪等实测证据；缺少证据时保持【待验证】。
+
 ### 本节证据边界
 
 本节只根据当前仓库说明文件、函数、宏、变量和调用关系。运行时频率、外部硬件表现、主机侧现象、传感器方向、电机响应或真实控制效果仍需调试记录、日志或仓库外实测证据；缺少证据时保持【待验证】。
@@ -580,6 +597,8 @@ SysTick 提供连续时基，DWT 负责短时间等待。
 - `Core/Src/tim.c`
 - `Three-axis_cloud_platformV2.ioc`
 - `Drivers/CMSIS/Include/core_cm3.h`
+- `Debug/Three-axis_cloud_platformV2.map`
+- `Debug/Three-axis_cloud_platformV2.list`
 
 外部权威资料：
 
