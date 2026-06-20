@@ -358,6 +358,20 @@ USB reset 回调最终进入 `USBD_LL_Reset()`，中间件会打开 EP0 OUT 和 
 
 这能避免一种常见误判：源码目录存在并不等于功能参与构建。当前项目通过 objects list 可以确认 USB 栈相关对象进入了 Debug 构建。
 
+### 10. `.map` 与 `.list` 的证据边界
+
+`Debug/objects.list` 只能证明目标文件参与构建，不能证明每个函数都进入最终镜像。第15章判断 USB Device 栈是否真正接入时，还要继续看 `Debug/Three-axis_cloud_platformV2.map` 和 `Debug/Three-axis_cloud_platformV2.list`。
+
+`.map` 的最终内存映射区能看到 `MX_USB_DEVICE_Init()`、`USBD_Init()`、`USBD_RegisterClass()`、`USBD_CDC_RegisterInterface()`、`USBD_Start()`、`USBD_LL_Init()`、PCD 回调桥函数、`CDC_Init_FS()` 和 `CDC_Receive_FS()` 等符号具有最终地址。这说明设备栈初始化、CDC 类注册、底层 PCD 连接和 CDC 接收相关回调函数进入了最终 ELF。
+
+`.list` 提供更强的调用证据：`main()` 中存在到 `MX_USB_DEVICE_Init()` 的分支调用；`MX_USB_DEVICE_Init()` 内部依次调用 `USBD_Init()`、`USBD_RegisterClass()`、`USBD_CDC_RegisterInterface()` 和 `USBD_Start()`；`USB_LP_CAN1_RX0_IRQHandler()` 会把中断交给 `HAL_PCD_IRQHandler(&hpcd_USB_FS)`；PCD 处理路径中可以看到 reset、setup、data in/out、SOF 等回调桥的调用点。
+
+但同一个 `.map` 也显示 `CDC_Transmit_FS()` 和 `USBD_CDC_TransmitPacket()` 位于地址为 `0x00000000` 的输入段附近，属于当前构建中被丢弃的发送相关函数段。它们只能说明源码和头文件提供了发送接口，不能证明当前项目已经存在 USB CDC 业务发送路径。
+
+CDC 接收路径还要区分“函数表注册”和“直接分支调用”：`USBD_Interface_fops_FS` 中保存了 `CDC_Receive_FS`，`USBD_CDC_RegisterInterface()` 把该函数表写入 `pdev->pUserData`，中间件 DataOut 路径再通过 `Receive` 函数指针回调应用层。`CDC_Receive_FS()` 函数体内则能在 `.list` 中看到重新设置接收缓冲并调用 `USBD_CDC_ReceivePacket()` 的分支调用。
+
+因此，本章的工程结论要分层写：USB Device/CDC 类初始化链路已经进入最终镜像；CDC 接收回调函数表和重新投递接收包的函数体具有构建证据；CDC 主动发送接口在当前构建中没有最终地址，发送业务应留到第16章继续核对。
+
 ### 本节证据边界
 
 本节只根据当前仓库说明文件、函数、宏、变量和调用关系。运行时频率、外部硬件表现、主机侧现象、传感器方向、电机响应或真实控制效果仍需调试记录、日志或仓库外实测证据；缺少证据时保持【待验证】。
@@ -627,13 +641,14 @@ PMA 与端点检查：
 - `USBD_SELF_POWERED=1` 只证明当前固件配置会声明自供电状态，不证明板级供电方式已经验证。
 - `low_power_enable = DISABLE` 说明 suspend 回调中的深睡眠分支不是当前默认启用路径。
 - `Debug/objects.list` 证明 USB Device Library 核心、CDC 类和 USB_DEVICE 适配文件参与当前 Debug 构建。
+- `Debug/Three-axis_cloud_platformV2.map` 与 `.list` 进一步证明 USB Device 初始化、CDC 类注册、PCD 回调桥和 CDC 接收相关函数进入最终镜像；同时 `CDC_Transmit_FS()` 与 `USBD_CDC_TransmitPacket()` 当前处于 `0x00000000` 输入段，不能写成已经存在 CDC 主动发送业务路径。
 
 本章边界：
 
 - 本章证明 USB Device 栈配置、初始化和中间件构建证据，不证明主机侧枚举已经成功。
 - `USBD_STATE_CONFIGURED` 需要主机侧枚举过程推进，当前仓库缺少运行证据，标记为【待验证】。
 - 线缆、供电、D+/D- 板级连接、主机检测、SOF 连续性、PMA 异常、真实吞吐量和自供电声明是否符合板级硬件均需实测。
-- CDC 接口、描述符、收发函数和业务协议解析需要在第16章继续区分。
+- CDC 描述符、主动发送接口和业务协议解析需要在第16章继续区分；第15章只确认 CDC 类初始化、接收函数表和接收函数体进入当前镜像。
 
 下一章可以进入 USB CDC 接口与描述符。第15章已经建立了设备栈框架，第16章才能在此基础上分析 CDC 接口、描述符、唯一序列号和静态内存分配。
 
@@ -674,6 +689,8 @@ PMA 与端点检查：
 - `Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_pcd.h`
 - `Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_ll_usb.h`
 - `Debug/objects.list`
+- `Debug/Three-axis_cloud_platformV2.map`
+- `Debug/Three-axis_cloud_platformV2.list`
 - `Debug/sources.mk`
 - `Debug/makefile`
 
@@ -694,11 +711,25 @@ PMA 与端点检查：
 - `USBD_LL_Start()`
 - `USBD_LL_Reset()`
 - `USBD_LL_SetupStage()`
+- `USBD_CDC_SetTxBuffer()`
+- `USBD_CDC_SetRxBuffer()`
+- `USBD_CDC_ReceivePacket()`
+- `USBD_CDC_TransmitPacket()`
+- `CDC_Init_FS()`
+- `CDC_Receive_FS()`
+- `CDC_Transmit_FS()`
 - `HAL_PCD_Init()`
 - `HAL_PCD_Start()`
 - `HAL_PCD_MspInit()`
 - `HAL_PCDEx_PMAConfig()`
 - `HAL_PCD_IRQHandler()`
+- `HAL_PCD_SetupStageCallback()`
+- `HAL_PCD_DataOutStageCallback()`
+- `HAL_PCD_DataInStageCallback()`
+- `HAL_PCD_SOFCallback()`
+- `HAL_PCD_ResetCallback()`
+- `HAL_PCD_SuspendCallback()`
+- `HAL_PCD_ResumeCallback()`
 - `USB_DevConnect()`
 - `USB_DevDisconnect()`
 - `USB_ReadInterrupts()`
