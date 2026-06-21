@@ -460,7 +460,32 @@ rawGyro[axis].value  = (int16_t)rotatedGyroData[axis];
 或方向分支选择一定符合实物。上述运行时和硬件一致性结论仍需调试器记录、传感器姿态动作记录、
 电机响应记录或标定日志；缺少证据时保持【待验证】。
 
-### 本节证据边界
+### 8.9 旋转矩阵理论与项目证据分层
+
+本章需要把“数学上的旋转矩阵”和“项目里的方向矩阵实现”分开。Modern Robotics 与 MathWorks
+SO(3) 资料都把三维旋转矩阵描述为 3x3 正交矩阵，并强调它可用于表示姿态、改变向量参考系或旋转向量。
+这类资料能支撑 `R^T R = I`、`det(R)=1`、右手系、模长保持等理论检查条件。
+
+但这些理论资料不能直接证明本项目的 `orientationMatrix` 一定正确。项目证据必须回到源码：
+`Drivers/CustomDrivers/Src/mpu6050.c` 定义 `int16_t orientationMatrix[9]`，`orientIMU()` 强制把
+`eepromConfig.imuOrientation` 覆盖为 `10`，当前矩阵为 `[1,0,0, 0,0,1, 0,-1,0]`；
+`matrixMultiply()` 按列向量左乘形式执行 `orientationMatrix * straightData`，并且
+`MPU6050_Read_And_Process()` 对加速度和陀螺仪各调用一次同一个矩阵。
+
+构建产物再补一层证据：`.map` 只能证明 `orientationMatrix`、`orientIMU()`、`matrixMultiply()` 和
+`MPU6050_Read_And_Process()` 被链接进当前 Debug 镜像；`.list` 能证明 `main()` 先调用
+`orientIMU()`，读取函数再两次调用 `matrixMultiply()` 并写回 `rawAccel/rawGyro`；`.su/.cyclo`
+只能补充静态栈和圈复杂度。它们仍不能证明实物 IMU 真的按 `case 10` 安装，也不能证明绕 X/Y/Z
+动作时变量响应与机械轴完全一致。
+
+因此第20章的结论应分层书写：
+
+- 数学层：有效旋转矩阵应满足正交性和 `det=1`，有效有符号置换矩阵会保持模长。
+- 源码层：当前项目使用 `case 10` 的整数有符号置换矩阵，并用同一矩阵处理加速度和陀螺仪。
+- 构建层：当前 Debug 固件确实包含方向初始化、矩阵乘法和写回路径。
+- 实测层：`case 10` 是否符合真实贴片方向、机械轴和电机控制符号，仍需静止重力、单轴转动、安装照片或控制响应记录；缺失时保持【待验证】。
+
+### 8.10 本节证据边界
 
 本节只根据当前仓库说明文件、函数、宏、变量和调用关系。运行时频率、外部硬件表现、主机侧现象、传感器方向、电机响应或真实控制效果仍需调试记录、日志或仓库外实测证据；缺少证据时保持【待验证】。
 
@@ -719,6 +744,7 @@ rawGyro[axis].value  = (int16_t)rotatedGyroData[axis];
 - 当前 `.su/.cyclo` 能补充 `orientIMU()`、`matrixMultiply()` 和 `MPU6050_Read_And_Process()`
   的静态栈用量与圈复杂度边界，但不能替代运行时栈水位、方向分支选择或真实安装方向验证。
 - 加速度和陀螺仪使用同一个 `orientationMatrix`，保证二者进入后续 AHRS 前处于同一软件坐标约定。
+- 旋转矩阵理论只能提供正交性、行列式和模长保持的数学检查标准；项目源码和构建产物只能证明当前固件使用 `case 10` 路径，不能替代真实安装方向验证。
 - `matrixMultiply()` 是当前 `3x3 * 3x1`、`int16_t`、有符号置换矩阵场景下的简化工具，
   不能直接当作通用矩阵库或浮点小角度安装误差补偿器。
 - 静态误差估计和校准流程读取的是方向处理后的 `rawAccel/rawGyro`，因此方向矩阵与标定参数存在轴系绑定关系。
