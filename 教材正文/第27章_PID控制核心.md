@@ -624,6 +624,40 @@ P * error + I * iTerm + D * dAverage
 这张表的关键是：`iTerm` 和 D 项历史状态都保存在 `eepromConfig.PID[]` 中。
 它们会跨帧延续，所以 PID 调试不是单帧代数题，而是带状态的离散控制问题。
 
+#### 8.6.1 PIDdata_t的配置字段与跨帧状态字段
+
+`PIDdata_t` 容易被误读成一张“PID 参数表”。从源码看，它同时承担两类职责：
+
+| 字段类别 | 典型字段 | 写入来源 | 教学含义 |
+|---|---|---|---|
+| 配置字段 | `P/I/D/B/type/dErrorCalc/rateLimit/windupGuard` | `config.c::init_eepromConfig(true)` 默认写入，`main.c` 当前调试代码再次覆盖部分字段 | 决定公式分支、比例/积分/微分增益和后级约束意图 |
+| 运行状态字段 | `iTerm/lastDcalcValue/lastDterm/lastLastDterm` | `initPID()`、`zeroPIDintegralError()`、`zeroPIDstates()` 和每次 `updatePID()` 写回 | 保存跨帧积分面积、D 项历史输入和滤波历史 |
+
+这一区分很重要。`computeMotorCommands.c` 传给 `updatePID()` 的不是一份临时副本，而是
+`&eepromConfig.PID[ROLL_PID]`、`&eepromConfig.PID[PITCH_PID]` 或
+`&eepromConfig.PID[YAW_PID]`。因此 `updatePID()` 内部执行：
+
+```c
+PIDparameters->iTerm = temp_iTerm;
+PIDparameters->lastDcalcValue = error;
+PIDparameters->lastLastDterm = PIDparameters->lastDterm;
+PIDparameters->lastDterm = dTermFiltered;
+```
+
+时，写回的是对应轴 `eepromConfig.PID[]` 中的跨帧状态。也就是说，`updatePID()` 不是“只读参数、返回输出”的纯函数；它会改变下一帧 PID 计算的初始条件。
+
+这也解释了为什么启动门控达到 1000 帧时要同时调用 `zeroPIDintegralError()` 和
+`zeroPIDstates()`。前者清除积分面积，后者清除 D 项历史状态。否则即使当前帧 `command`
+和 `state` 看起来正常，上一阶段残留的 `iTerm`、`lastDterm` 或 `lastDcalcValue`
+仍可能影响接通后的第一批 PID 输出。
+
+构建产物能证明这条链路的边界：`.map` 中 `eepromConfig`、`updatePID()`、
+`zeroPIDintegralError()` 和 `zeroPIDstates()` 都进入当前 Debug 镜像；`.list`
+中也能看到三轴分支调用 `updatePID()` 的路径。但 `.map/.list` 不能证明某一帧写回的
+`iTerm` 或 D 项历史值合理，也不能证明这些运行状态已经被 EEPROM 持久化保存。
+当前 `config.c::init_eepromConfig(true)` 仍以默认写入分支为主，缺少 EEPROM 恢复链路证据时，
+PID 状态持久化继续保持【待验证】。
+
 ### 8.7 B参数分支边界
 
 `pid.c::updatePID()` 在 `ANGULAR` 和 `OTHER` 两类 PID 上使用不同输出公式。
@@ -1455,6 +1489,7 @@ Pitch/Yaw 分支则直接把 `pidCmd - pidCmdPrev` 与 `eepromConfig.rateLimit` 
 - `ANGULAR` 类型会让 PID 误差进入角度归一化。
 - 当前三轴姿态 PID 的离散主公式是 `P * error + I * iTerm + D * dAverage`。
 - `iTerm` 保存的是误差积分状态，不是已经乘以 `I` 的积分输出。
+- `PIDdata_t` 同时包含配置字段和跨帧状态字段，不能把 `eepromConfig.PID[]` 只理解为静态参数表。
 - `D_ERROR` 表示 D 项来自误差变化，`D_STATE` 表示 D 项来自状态变化。
 - `standardRadianFormat()` 是 PID 内部单次角度包裹函数，不是多圈通用归一化器。
 - `D_ERROR` 与 `D_STATE` 的角度包裹位置不同；当前三轴默认使用 `D_ERROR`。
