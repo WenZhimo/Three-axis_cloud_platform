@@ -349,6 +349,14 @@ TIM6 的配置意义留到第13章继续判断。
 这些构建产物证据能证明当前 Debug 镜像包含 DWT 启用、微秒时间戳消费、500Hz 时间差记录和 DWT 忙等函数调用路径，也能证明上述函数在当前编译选项下生成了静态栈与圈复杂度记录。
 但它们不能证明板上运行的一定是同一个镜像，也不能证明 `CYCCNT` 在运行时确实递增、`DWT_Delay_us(1000)` 的墙钟等待精确等于 1000us、500Hz 周期没有抖动、采样频率严格达到 1000Hz，或这些函数在中断嵌套、库函数调用和调试器停顿下的完整最坏栈深度。上述运行时结论仍需要调试日志、寄存器观察、示波器或逻辑分析仪等实测证据；缺少证据时保持【待验证】。
 
+### 7.1 `.map/.list` 最终地址与 DWT 运行边界
+
+更细地拆开看，`Debug/Three-axis_cloud_platformV2.map` 给出的不是“源码里存在这些函数”，而是当前 Debug 链接结果中的最终放置位置：`micros` 位于 `.text.micros`，入口地址为 `0x08001458`；`DWT_Delay_us` 位于 `.text.DWT_Delay_us`，入口地址为 `0x080036f0`；`HAL_GetTick` 位于 `.text.HAL_GetTick`，入口地址为 `0x080058f4`。这能证明三条相关函数路径已经进入当前 ELF 的 Flash 代码段。
+
+`Debug/Three-axis_cloud_platformV2.list` 进一步把这些最终地址和源代码行、反汇编指令对应起来：`micros()` 调用 `HAL_GetTick()`，并读取 `SysTick->VAL` 与 `SysTick->LOAD`；`main()` 写入 `CoreDebug->DEMCR`、`DWT->CYCCNT` 和 `DWT->CTRL`，形成 DWT 周期计数启用序列；`main()` 还调用 `micros()` 初始化 `previous500HzTime`，并在 500Hz 分支中计算 `currentTime`、`deltaTime500Hz` 与 `executionTime500Hz`；`mpu6050.c` 的静态零偏采样调用 `DWT_Delay_us(1000)`；`DWT_Delay_us()` 自身读取 `DWT->CYCCNT`，计算 `us * (SystemCoreClock / 1000000)`，并用无符号差值循环等待目标周期数。
+
+因此，`.map/.list` 可以证明当前 Debug 构建包含“SysTick/HAL tick 时间戳路径”“DWT 启用写寄存器路径”“DWT 忙等路径”和“MPU6050 采样等待调用点”。它们不能证明烧录到板上的一定是同一个 ELF，不能证明 `DWT->CYCCNT` 在运行时真实递增，不能证明 `DWT_Delay_us(1000)` 的墙钟等待精确等于 1000us，也不能证明 500Hz 控制分支没有抖动或采样频率严格达到 1000Hz。这些结论需要调试器寄存器回读、连续日志、GPIO 翻转计时、示波器或逻辑分析仪证据；缺少这些证据时继续标为【待验证】。
+
 ### 本节证据边界
 
 本节只根据当前仓库说明文件、函数、宏、变量和调用关系。运行时频率、外部硬件表现、主机侧现象、传感器方向、电机响应或真实控制效果仍需调试记录、日志或仓库外实测证据；缺少证据时保持【待验证】。
