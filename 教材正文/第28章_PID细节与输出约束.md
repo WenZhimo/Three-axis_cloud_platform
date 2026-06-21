@@ -729,6 +729,72 @@ if outputRate > eepromConfig.rateLimit:
 
 和 Roll 不同，Pitch/Yaw 当前没有乘以 `dt`。由于 `rateLimit` 在配置中按 `45.0f * D2R` 设置，这里是“每帧变化限制”还是遗漏了 `dt` 缩放，需要结合仓库外实测效果继续验证，本章标记为【待验证】。
 
+### 8.6.1 rateLimit字段的单位语义边界
+
+`rateLimit` 是第28章里最容易被误读的字段之一。它的名字像“速率”，
+`config.c` 注释也写着：
+
+```text
+rateLimit = 45.0f * D2R
+Note this is rate limiting electrical degrees of rotation, not mechanical
+```
+
+这层证据只能说明配置者希望表达“电角度相关的变化限制”，不能直接证明三轴当前都按
+“rad/s”解释。真正进入控制路径后，还要看 `computeMotorCommands.c` 中的比较对象和换算方式。
+
+当前源码可以拆成三层：
+
+| 层级 | 源码证据 | 可证明结论 | 不能证明的结论 |
+| --- | --- | --- | --- |
+| 配置字段 | `eepromConfig.rateLimit = 45.0f * D2R` | 默认数值约为 `0.7854`，注释指向 electrical rotation | 它一定是机械角速度上限 |
+| 比较对象 | `outputRate[axis] = pidCmd[axis] - pidCmdPrev[axis]` | 限制对象是 PID 补偿量的帧间差值 | 限制对象是 `pointingCmd[]` 目标角速度 |
+| 轴向换算 | Roll 使用 `rateLimit * safeDt`，Pitch/Yaw 直接使用 `rateLimit` | 三轴当前代码表达式不同 | 三轴具有同一物理单位和同一限速强度 |
+
+用当前默认 500Hz 附近的 `safeDt = 0.002s` 做数量级检查：
+
+```text
+rateLimit = 45 deg/s * pi/180 ≈ 0.7854 rad/s
+Roll:  rollStepLimit = 0.7854 * 0.002 ≈ 0.00157 rad/frame
+Pitch: stepLimit = 0.7854 rad/frame
+Yaw:   stepLimit = 0.7854 rad/frame
+```
+
+如果把 Pitch/Yaw 的 `0.7854 rad/frame` 再按 500Hz 换算成“等效每秒速率”，会得到：
+
+```text
+0.7854 rad/frame * 500 frame/s ≈ 392.7 rad/s
+≈ 22500 deg/s
+```
+
+这个数量级说明：不能把 Pitch/Yaw 当前表达式直接解释成与 Roll 相同的
+`45 deg/s` 每秒速率限制。更准确的教材表述应是：
+
+```text
+Roll: 当前源码有 rateLimit * safeDt 的每帧步长换算证据。
+Pitch/Yaw: 当前源码有直接使用 rateLimit 作为每帧差值阈值的证据。
+三轴单位语义是否符合设计意图，需要代码整理、调参日志或实物测试继续验证【待验证】。
+```
+
+这个边界还影响调试方法。若示波器或串口日志里看到 Pitch/Yaw 输出变化比 Roll 快，
+不能只说“`rateLimit` 没生效”。应先确认：
+
+```text
+1. 本轴是否进入 updatePID() 后的幅值限幅路径。
+2. outputRate[axis] 是否超过 eepromConfig.rateLimit。
+3. pidCmd[axis] 是否被改写为 pidCmdPrev[axis] ± eepromConfig.rateLimit。
+4. pidCmdPrev[axis] 更新前后的差值是否重新计算。
+5. 最终 stator_electrical_angle 是否还叠加了 current_elec、offset、sign 或 wrapToPif()。
+```
+
+`.list` 构建产物能作为第二层证据：当前 Debug 快照中 Pitch 和 Yaw 分支在 `updatePID()`
+之后仍能看到 `outputRate[PITCH/YAW]` 与 `eepromConfig.rateLimit` 的比较和加减；
+Roll 分支则保留了 `eepromConfig.rateLimit * safeDt` 的步长计算。也就是说，
+这不是单纯的源码阅读推测，而是当前 Debug 构建中仍然存在的轴向差异。
+
+但 `.list` 仍然不能证明设计意图。它能证明“编译出来的代码保留了这种差异”，
+不能证明“Pitch/Yaw 这样写就是正确单位”，也不能证明“真实电机响应安全”。因此，
+本章把 `rateLimit` 写成一个需要按轴解释的约束字段，而不是三轴共享的统一物理速率参数。
+
 ### 8.7 积分限幅与windupGuard边界
 
 `updatePID()` 中积分更新逻辑是：
