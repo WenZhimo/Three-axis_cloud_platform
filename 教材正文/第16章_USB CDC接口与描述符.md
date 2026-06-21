@@ -467,6 +467,37 @@ VID/PID 也要用数字值和工程含义分开看。
 
 `.list` 对接收和控制请求提供了更细的证据：`CDC_Init_FS()` 里能看到对 `USBD_CDC_SetTxBuffer()` 和 `USBD_CDC_SetRxBuffer()` 的分支调用；`CDC_Receive_FS()` 里能看到对 `USBD_CDC_SetRxBuffer()` 和 `USBD_CDC_ReceivePacket()` 的分支调用；`USBD_CDC_Setup()` 中能看到类请求经 `pUserData->Control()` 回到 `CDC_Control_FS()`，并通过 `USBD_CtlSendData()` 或 `USBD_CtlPrepareRx()` 处理 EP0 数据阶段。由于 `CDC_Control_FS()` 的 line coding 分支没有写入明确配置值，这些调用证据仍不能推出固件保存了主机串口参数。
 
+`Debug/USB_DEVICE/App/usbd_cdc_if.su` 和对应 `.cyclo` 文件还能给出应用侧 CDC 回调的静态资源记录：
+
+- `CDC_Init_FS` 的静态栈使用量为 8 字节，圈复杂度为 1。
+- `CDC_DeInit_FS` 的静态栈使用量为 4 字节，圈复杂度为 1。
+- `CDC_Control_FS` 的静态栈使用量为 16 字节，圈复杂度为 1。
+- `CDC_Receive_FS` 的静态栈使用量为 16 字节，圈复杂度为 1。
+- `CDC_Transmit_FS` 的静态栈使用量为 24 字节，圈复杂度为 2。
+
+其中 `CDC_Transmit_FS` 要特别分层解释：`.su/.cyclo` 记录说明该目标文件中生成过函数级静态资源信息，但当前 `.map/.list` 没有给出它进入最终镜像并被业务调用的证据。因此它仍只能作为源码层发送入口和构建中间证据，不能写成当前 USB CDC 主动发送路径已经生效。
+
+`Debug/Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Src/usbd_cdc.su` 和对应 `.cyclo` 文件覆盖 CDC 类驱动层：
+
+- `USBD_CDC_Init` 的静态栈使用量为 24 字节，圈复杂度为 4。
+- `USBD_CDC_Setup` 的静态栈使用量为 32 字节，圈复杂度为 12。
+- `USBD_CDC_DataIn` 的静态栈使用量为 24 字节，圈复杂度为 4。
+- `USBD_CDC_DataOut` 的静态栈使用量为 24 字节，圈复杂度为 2。
+- `USBD_CDC_EP0_RxReady` 的静态栈使用量为 24 字节，圈复杂度为 3。
+- `USBD_CDC_RegisterInterface` 的静态栈使用量为 24 字节，圈复杂度为 2。
+
+`Debug/USB_DEVICE/App/usbd_desc.su` 和对应 `.cyclo` 文件覆盖描述符与序列号生成层：
+
+- `USBD_FS_DeviceDescriptor` 的静态栈使用量为 16 字节，圈复杂度为 1。
+- `USBD_FS_ProductStrDescriptor` 的静态栈使用量为 16 字节，圈复杂度为 2。
+- `USBD_FS_SerialStrDescriptor` 的静态栈使用量为 16 字节，圈复杂度为 1。
+- `Get_SerialNum` 的静态栈使用量为 24 字节，圈复杂度为 2。
+- `IntToUnicode` 的静态栈使用量为 32 字节，圈复杂度为 3。
+
+`Debug/USB_DEVICE/Target/usbd_conf.su` 还记录 `USBD_static_malloc` 和 `USBD_static_free` 的静态栈使用量均为 16 字节，圈复杂度均为 1。
+
+这些 `.su/.cyclo` 条目只能证明当前 Debug 编译过程中生成了函数级静态栈和圈复杂度记录。它们不能证明主机已经绑定 CDC/ACM 驱动、虚拟串口已经出现、USB OUT 回调能连续稳定触发、USB IN 发送路径已经进入最终镜像，或业务协议已经生效。运行时和主机侧结论仍需枚举日志、串口工具记录、USB 抓包或断点记录；缺少证据时保持【待验证】。
+
 ## 9. 调试方法
 
 USB CDC 调试应先区分“设备能枚举”“虚拟串口能出现”“项目业务能通信”三个层级。
@@ -770,6 +801,7 @@ USB CDC 调试应先区分“设备能枚举”“虚拟串口能出现”“项
 - `Get_SerialNum()` 通过 STM32 唯一 ID 生成 USB 序列号字符串。
 - `bmAttributes=0xC0`、`USBD_SELF_POWERED=1` 和 `MaxPower=0x32` 只是描述符/协议层声明，硬件供电真实性仍需验证。
 - `.map` 证明 CDC 类函数、描述符对象、回调表、RX/TX 缓冲和字符串缓冲进入当前镜像；`.list` 证明接收回调和 EP0 控制请求路径有实际分支或函数指针调用证据。
+- 当前 Debug `.su/.cyclo` 文件显示：`CDC_Receive_FS` 为 16 字节静态栈、圈复杂度 1；`USBD_CDC_Setup` 为 32 字节静态栈、圈复杂度 12；`IntToUnicode` 为 32 字节静态栈、圈复杂度 3。这些属于静态构建资源记录，不证明主机侧 CDC 通信成功。
 
 本章边界：
 
@@ -817,6 +849,14 @@ USB CDC 调试应先区分“设备能枚举”“虚拟串口能出现”“项
 - `Drivers/CMSIS/Device/ST/STM32F1xx/Include/stm32f103xe.h`
 - `Debug/Three-axis_cloud_platformV2.map`
 - `Debug/Three-axis_cloud_platformV2.list`
+- `Debug/USB_DEVICE/App/usbd_cdc_if.su`
+- `Debug/USB_DEVICE/App/usbd_cdc_if.cyclo`
+- `Debug/USB_DEVICE/App/usbd_desc.su`
+- `Debug/USB_DEVICE/App/usbd_desc.cyclo`
+- `Debug/USB_DEVICE/Target/usbd_conf.su`
+- `Debug/USB_DEVICE/Target/usbd_conf.cyclo`
+- `Debug/Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Src/usbd_cdc.su`
+- `Debug/Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Src/usbd_cdc.cyclo`
 
 权威参考资料：
 
