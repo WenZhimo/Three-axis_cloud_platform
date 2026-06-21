@@ -897,6 +897,14 @@ ROLL_SETTLE_TIME_S
 Yaw 已经有控制低通、Roll 已经有收敛后再放开 Pitch 的门控。按当前源码证据，
 这些机制不能写成已经生效。若未来补齐这些逻辑，应同时更新第28章和第31章的控制架构说明。
 
+#### PID保护机制的权威资料与项目实现边界
+
+PID 细节不能只按“工程经验”讲。经典 PID 文献和控制教材通常会把三类问题分开讨论：微分项对噪声敏感、执行器饱和会引发积分 windup、设定值突变可能带来 derivative kick 或输出冲击。这些资料能证明第28章讨论的 D 项滤波、输出限幅、速率限制和抗饱和都属于 PID 工程实现中的常见保护主题。
+
+但权威资料层不能替代项目源码层。资料中常见的 anti-windup 包括条件积分、积分暂停、积分限幅、tracking/back-calculation 等不同形式；当前项目源码只能证明 `updatePID()` 实现了 `iHold` 条件积分、`iTerm` 硬限幅到 `[-10, 10]`，并没有看到把输出饱和误差反馈回积分状态的反算路径。因此本章只能把当前实现写成“积分暂停 + 积分硬限幅”，不能因为资料中存在完整 anti-windup 概念，就把项目写成完整反算 anti-windup 控制器。
+
+同理，资料层可以说明 D 项滤波和设定值权重是降低噪声敏感性与设定值冲击的常见方法；项目源码层只能证明当前 `updatePID()` 有 `dErrorCalc` 分支、一阶低通、三点平均、D 项原始限幅，以及 ANGULAR/非 ANGULAR 两类输出表达式。当前默认配置、三轴接线和实际响应仍必须回到 `config.c`、`pid.c`、`computeMotorCommands.c`、`.map/.list` 与调试日志验证；缺少现场数据时，稳定性和硬件安全结论保持【待验证】。
+
 ### 8.12 构建产物证据边界
 
 前面的小节主要来自源码阅读。当前 Debug 构建还可以用
@@ -1307,6 +1315,7 @@ Pitch/Yaw 直接使用 `rateLimit`。
 - `.su/.cyclo` 能补充 `clampf()`、`moveTowardsf()`、`wrapToPif()`、`moveTowardsAnglef()`、
   `updatePID()`、`computeMotorCommands()` 和 `PWM_Motor_SetAngle()` 的静态栈与圈复杂度线索，
   但不能替代真实耗时、栈水位、硬件安全或闭环稳定性证据。
+- Åström/Hägglund、Åström/Murray 和 MathWorks PID 文档能支撑 D 项噪声、设定值冲击、执行器饱和与 anti-windup 的通用工程背景，但不能替代本项目源码和构建产物证据。
 
 本章保留十二个边界：
 
@@ -1351,6 +1360,13 @@ Pitch/Yaw 直接使用 `rateLimit`。
 - `Debug/Drivers/SRC/Src/pid.cyclo`
 - `Debug/Drivers/CustomDrivers/Src/drv_pwmMotors.su`
 - `Debug/Drivers/CustomDrivers/Src/drv_pwmMotors.cyclo`
+
+权威参考资料：
+
+- Karl J. Astrom and Tore Hagglund, `PID Controllers: Theory, Design, and Tuning`
+- Karl J. Astrom and Richard M. Murray, `Feedback Systems: An Introduction for Scientists and Engineers`, PID control chapter: `https://fbswiki.org/wiki/index.php/PID_Control`
+- IEEE Control Systems Society, Karl Astrom PID lecture material: `https://ieeecss.org/CSM/library/2018/feb18/06-PID.pdf`
+- MathWorks documentation, `Anti-Windup Control Using PID Controller Block`: `https://www.mathworks.com/help/simulink/slref/anti-windup-control-using-a-pid-controller.html`
 
 质量自检：
 
