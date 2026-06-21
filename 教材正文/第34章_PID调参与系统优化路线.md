@@ -710,6 +710,42 @@ eepromConfig.PID[YAW_PID].type         = ANGULAR;
 
 边界在于：这种相符来自脚本默认行为，而不是来自解析结果。如果以后固件把某个轴改为 `D_STATE`，或者把 `type` 改成非 `ANGULAR`，当前仿真工具不会自动跟随这个语义变化。尤其是非 `ANGULAR` 输出分支还会使用 `B`，而当前脚本没有建模这个分支。教材中说“加载固件默认值”时，必须限定为加载 P/I/D、命令限幅和速率限制等已解析字段，不能理解为已经加载了所有 PID 行为开关。
 
+#### 仿真默认值解析的新鲜度边界
+
+`parse_firmware_defaults()` 读取的是当前工作区源码文本，而不是当前 Debug ELF、`.map`、
+`.list` 或目标板 RAM。脚本入口中：
+
+```text
+project_root = Path(__file__).resolve().parents[1]
+```
+
+随后用 `Path.read_text()` 分别读取 `Core/Src/main.c`、`Drivers/SRC/Src/computeMotorCommands.c`
+和 `Drivers/SRC/Src/config.c`，再用正则表达式提取 P/I/D、命令限幅和 `rateLimit`。
+这意味着“加载固件默认值”按钮实际加载的是仓库文件系统中的当前文本快照。
+
+这个机制有三个调试边界。
+
+第一，它比只看 `config.c` 更贴近当前源码意图，因为它能读到 `main.c` 在
+`init_eepromConfig(true)` 之后写入的 PID 覆盖值；但它不能证明这些值已经进入
+`Debug/Three-axis_cloud_platformV2.elf`，也不能证明板上 Flash 或 RAM 已经是这些值。
+
+第二，它不是 C 编译器，也不运行预处理器。正则只按文本查找赋值形态，不理解条件编译、
+宏展开、函数是否实际调用、赋值是否位于不可达分支，也不自动识别注释中的历史赋值。
+当前仓库可用它快速读取 P/I/D，但若以后有人在注释或调试分支中保留同形态赋值，
+仿真工具可能读到并不代表当前固件路径的数值【待验证】。
+
+第三，它的结果和 Debug `.list` 可能不一致。出现不一致时，调参记录应拆成：
+
+```text
+脚本解析值
+-> 当前源码文本值
+-> 当前构建产物反汇编值
+-> 板上 RAM 观测值【待验证】
+```
+
+只有这四层证据对齐，才能把“仿真使用的默认值”和“目标板正在运行的 PID 参数”
+写成同一组数。否则，仿真曲线只能代表当前工作区文本对应的离线预演。
+
 ### 8.2 命令限幅解析
 
 工具从 `computeMotorCommands.c` 中读取：
