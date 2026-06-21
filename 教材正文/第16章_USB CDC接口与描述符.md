@@ -467,6 +467,19 @@ VID/PID 也要用数字值和工程含义分开看。
 
 `.list` 对接收和控制请求提供了更细的证据：`CDC_Init_FS()` 里能看到对 `USBD_CDC_SetTxBuffer()` 和 `USBD_CDC_SetRxBuffer()` 的分支调用；`CDC_Receive_FS()` 里能看到对 `USBD_CDC_SetRxBuffer()` 和 `USBD_CDC_ReceivePacket()` 的分支调用；`USBD_CDC_Setup()` 中能看到类请求经 `pUserData->Control()` 回到 `CDC_Control_FS()`，并通过 `USBD_CtlSendData()` 或 `USBD_CtlPrepareRx()` 处理 EP0 数据阶段。由于 `CDC_Control_FS()` 的 line coding 分支没有写入明确配置值，这些调用证据仍不能推出固件保存了主机串口参数。
 
+#### 接收、发送与业务协议证据边界
+
+USB CDC 最容易被误读成“能枚举就等于能通信，能通信就等于有业务协议”。本项目必须按路径拆开：
+
+| 路径 | 当前构建证据 | 可以确认 | 仍不能确认 |
+|---|---|---|---|
+| EP0 控制请求 | `USBD_CDC_Setup()`、`USBD_CDC_EP0_RxReady()`、`CDC_Control_FS()` 有最终地址和 `.list` 分支证据 | CDC 类控制请求入口存在，line coding 等请求能进入项目回调 | 当前分支未保存或填充明确 line coding，不能证明固件维护了串口参数状态 |
+| Bulk OUT 接收 | `USBD_CDC_DataOut()`、`CDC_Receive_FS()`、`USBD_CDC_ReceivePacket()` 有最终地址或调用边证据 | OUT 数据可以进入应用层接收回调，并重新准备下一次接收 | `Buf/Len` 未被解析或复制到业务队列，不能证明上位机命令协议已经存在 |
+| Bulk IN 主动发送 | `CDC_Transmit_FS()` 与 `USBD_CDC_TransmitPacket()` 只出现在 `0x00000000` 输入段，未见业务调用点 | 源码层保留了未来发送入口和 `TxState` 忙判断设计 | 当前 Debug ELF 没有可执行主动发送主线，不能证明 USB CDC 已承担日志或状态输出 |
+| 项目业务协议 | 搜索 `Core`、`Drivers` 和 `USB_DEVICE` 只发现模板收发入口 | 可以确认 USB CDC 框架存在、业务扩展入口明确 | 没有 PID、目标角、配置对象或状态输出与 CDC 数据流相连的证据 |
+
+因此，本章对 USB CDC 的结论必须使用四个不同层级的措辞：描述符可枚举、控制请求可进入、OUT 数据可回调、业务协议已生效。当前仓库只能证明前三者中的一部分静态路径；最后一层仍缺少解析逻辑、调用点、主机日志和运行记录【待验证】。
+
 `Debug/USB_DEVICE/App/usbd_cdc_if.su` 和对应 `.cyclo` 文件还能给出应用侧 CDC 回调的静态资源记录：
 
 - `CDC_Init_FS` 的静态栈使用量为 8 字节，圈复杂度为 1。
