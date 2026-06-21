@@ -285,6 +285,23 @@ FLASH = 0x08000000, 256K
 
 这说明 Debug 构建产物层面确实把当前启动对象和链接脚本纳入链接。它能证明构建链路的静态事实，但仍不能证明目标板已经下载并运行这个 ELF；下载和运行证据留到第33章。
 
+### 8.5.1 MCU容量与链接边界证据
+
+平台容量也要分清“官方器件能力”“工程选择”和“当前构建结果”三层。
+
+ST 官方 `STM32F103xC/D/E` 数据手册说明该高密度系列覆盖 256KB 到 512KB Flash、最高 64KB SRAM，并包含 LQFP64 封装选项。这个资料可以支撑“STM32F103RC/RD/RE 所在系列具备对应容量和封装组合”的器件层背景，但不能单独证明本仓库工程实际使用了哪一个链接边界。
+
+本项目仓库内的证据更具体：
+
+| 证据位置 | 能证明的内容 | 不能证明的内容 |
+|---|---|---|
+| `Three-axis_cloud_platformV2.ioc` 中 `Mcu.CPN=STM32F103RCT6`、`Mcu.Package=LQFP64`、`Mcu.UserName=STM32F103RCTx` | CubeMX 配置源把项目放在 STM32F103RCTx / LQFP64 平台上 | 板上芯片丝印、焊接封装和外部连线一定与配置一致 |
+| `.cproject` 中 `target_mcu=STM32F103RCTx`、`STM32F103xE`、`STM32F103RCTX_FLASH.ld` | IDE 构建配置选择了目标 MCU、容量族宏和链接脚本 | 当前目标板已经下载并运行此 Debug ELF |
+| `STM32F103RCTX_FLASH.ld` 中 `FLASH=0x08000000, 256K`、`RAM=0x20000000, 48K` | 链接器按 256KB Flash、48KB RAM 放置段和栈顶 | 实物芯片的 Flash/RAM 读数已经现场验证 |
+| `Debug/Three-axis_cloud_platformV2.map` 中 `FLASH 0x08000000 0x00040000`、`RAM 0x20000000 0x0000c000`、`_estack=0x2000c000` | 当前 Debug 构建快照确实采用了上述链接内存区域 | `.map` 一定由最新源码重新生成，或目标板当前正在运行该镜像 |
+
+因此，第01章可以把“本仓库当前 Debug 构建按 256KB Flash / 48KB RAM 的 STM32F103RCTx 链接边界生成”写成构建事实；但不能把它扩展成“实物板已经确认焊接 STM32F103RCT6 且容量读回正确”。后者需要第33章下载调试、芯片丝印照片、读保护/设备 ID 读取或调试器连接记录支撑，缺少证据时保持【待验证】。
+
 ### 本节证据边界
 
 本节只根据当前仓库说明文件、函数、宏、变量和调用关系。运行时频率、外部硬件表现、主机侧现象、传感器方向、电机响应或真实控制效果仍需调试记录、日志或仓库外实测证据；缺少证据时保持【待验证】。
@@ -496,6 +513,11 @@ FLASH = 0x08000000, 256K
 - `Drivers/CMSIS/Device/ST/STM32F1xx/Include/stm32f103xe.h`
 - `Debug/objects.list`
 - `Debug/makefile`
+- `Debug/Three-axis_cloud_platformV2.map`
+
+官方资料：
+
+- STMicroelectronics, `STM32F103xC, STM32F103xD, STM32F103xE datasheet`, DS5792。
 
 质量自检：
 
