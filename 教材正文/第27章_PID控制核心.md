@@ -956,7 +956,35 @@ alpha = 0.002 / (0.00796 + 0.002) ~= 0.201
 电机方向、机械耦合、输出限幅后的实际力矩、姿态是否稳定，
 仍然需要第28章到第30章的链路分析和硬件实测证据【待验证】。
 
-### 8.19 构建产物证据边界
+### 8.19 PID状态写回证据边界
+
+经典 PID 不是只由当前一帧误差决定的无状态公式。积分项需要保存历史误差累积，
+微分滤波也需要保存上一帧或上几帧的中间值。当前项目的 `updatePID()` 也符合这个特征：
+它接收的是 `struct PIDdata *PIDparameters` 指针，并在计算过程中写回该结构体。
+
+可以把 `updatePID()` 的状态写回拆成四类证据：
+
+| 状态字段 | 写回条件 | 源码证据 | 教材解释边界 |
+| --- | --- | --- | --- |
+| `iTerm` | `iHold == false` 时更新，随后夹到 `[-10, 10]` | `PIDparameters->iTerm = temp_iTerm` | 证明积分状态会跨帧保存；若对应轴 `I=0.0f`，状态更新不等于积分输出已经生效 |
+| `lastDcalcValue` | D 项初始化和每次 D 项输入更新时写回 | `PIDparameters->lastDcalcValue = error/state` | 证明下一帧微分输入依赖本帧记录；`0.0f` 哨兵不能证明已有独立有效标志 |
+| `lastLastDterm` | 每次 D 项滤波后写回上一帧 `lastDterm` | `PIDparameters->lastLastDterm = PIDparameters->lastDterm` | 证明三点平均使用跨帧 D 项历史；不能只看当前 `dTerm` 判断 D 输出 |
+| `lastDterm` | 每次 D 项滤波后写回当前滤波结果 | `PIDparameters->lastDterm = dTermFiltered` | 证明低通滤波状态会延续到下一帧；调试噪声时必须记录连续帧 |
+
+三轴之所以共享同一个 `updatePID()` 实现，是因为 `computeMotorCommands.c`
+分别传入 `&eepromConfig.PID[ROLL_PID]`、`&eepromConfig.PID[PITCH_PID]`
+和 `&eepromConfig.PID[YAW_PID]`。也就是说，函数代码共享，但运行状态按 PID 参数对象分开保存。
+这类设计降低了重复实现，但也要求调试时明确“当前断点看到的是哪一个轴的 `PIDdata_t`”。
+
+构建产物可以补一层证据：`.map` 证明 `.bss.eepromConfig`、`updatePID` 和状态清零 helper
+进入镜像，`.list` 证明 `computeMotorCommands()` 的 Roll、Pitch、Yaw 分支都存在调用
+`updatePID()` 的路径，并能看到 `updatePID()` 内部对 `iTerm`、`lastDcalcValue`、
+`lastLastDterm` 和 `lastDterm` 的写回语句。
+但这些证据仍不能证明某一轴在真实运行中每帧都执行，也不能证明连续帧状态演化符合预期。
+若要证明状态写回真正按预期工作，需要在同一轴上连续记录“调用前字段值、输入误差、`deltaT`、
+写回后字段值和返回输出”，缺少这类日志时保持【待验证】。
+
+### 8.20 构建产物证据边界
 
 前面的小节主要根据源码说明 PID 的数据结构、公式分支和调用关系。
 如果要确认这些路径是否真的进入当前 Debug 镜像，需要再看 `Debug/Three-axis_cloud_platformV2.map`
@@ -1420,6 +1448,8 @@ Pitch/Yaw 分支则直接把 `pidCmd - pidCmdPrev` 与 `eepromConfig.rateLimit` 
 - `lastDcalcValue == 0.0f` 同时承担初始化判断和值存储角色，存在 D 项哨兵值边界。
 - 原始 `dTerm` 会被限制到 `[-300, 300]`，最终输出 NaN/Inf 会被置 0。
 - `dTerm` 还会经过 `alpha = deltaT / (rc + deltaT)` 的一阶低通滤波和三点平均，最终以 `dAverage` 进入输出公式。
+- `updatePID()` 会通过 `PIDdata_t *` 写回 `iTerm`、`lastDcalcValue`、`lastDterm`
+  和 `lastLastDterm`，因此它是带跨帧状态的控制器更新，不是只读当前误差的纯公式函数。
 - 当前 `updatePID()` 是位置式离散 PID，不是增量式 PID。
 - `pidCmdPrev[]` 和 `outputRate[]` 是 PID 后级输出约束，其中 Roll 后续 PID 分支使用 `rateLimit * safeDt`，Pitch/Yaw 当前直接使用 `rateLimit`，存在单位语义边界【待验证】。
 - 当前控制链路是姿态反馈闭环，不是开环固定输出。
@@ -1447,6 +1477,8 @@ Pitch/Yaw 分支则直接把 `pidCmd - pidCmdPrev` 与 `eepromConfig.rateLimit` 
 - `holdIntegrators` 的同帧跨轴影响需要轴使能、Roll 分支状态和实测日志共同确认【待验证】。
 - `lastDcalcValue == 0.0f` 的哨兵值写法不能替代独立初始化有效标志。
 - D 项滤波系数由 `deltaT` 参与计算，异常 `deltaT` 回退会同时影响微分斜率和滤波响应。
+- 三轴共享 `updatePID()` 代码但状态对象不同，断点和日志必须标明当前传入的是
+  `&eepromConfig.PID[ROLL_PID]`、`&eepromConfig.PID[PITCH_PID]` 还是 `&eepromConfig.PID[YAW_PID]`。
 - `pidCmdPrev[]` 和 `outputRate[]` 属于 PID 后级输出约束，不改变 `updatePID()` 的位置式 PID 属性。
 - 同一 `rateLimit` 字段在 Roll 与 Pitch/Yaw 输出速率限制中的 `dt` 使用方式不同，是否为有意轴差异需要设计意图或实测日志确认【待验证】。
 - LQR/MPC 只能作为未来架构迁移讨论，不能写成当前项目采用的控制方法。
