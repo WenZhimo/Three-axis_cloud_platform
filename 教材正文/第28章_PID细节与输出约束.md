@@ -462,6 +462,22 @@ PID补偿量: pidCmd、pidCmdPrev、outputRate
 
 只有把这三层分开，才能判断当前限制到底约束了目标变化、PID 补偿变化，还是最终电角变化。
 
+### 5.5.1 PID补偿约束与定子电角边界
+
+第28章讨论的“输出约束”主要发生在 `pidCmd[]` 这一层。它能限制 PID 补偿量的幅值和帧间变化，
+但不能直接证明最终传入 `PWM_Motor_SetAngle()` 的定子电角也按同样步长变化。原因是三轴在
+`computeMotorCommands.c` 中还会把当前电角、符号和固定偏移叠加进去：
+
+| 轴向路径 | `pidCmd[]` 之后的定子电角表达式 | 本章边界 |
+|---|---|---|
+| Roll 后续 PID | `current_electrical_angle + ROLL_STATOR_SIGN * pidCmd[ROLL]` | `rateLimit` 只限制 PID 补偿项，不限制 `current_electrical_angle` 自身变化 |
+| Pitch | `wrapToPif(current_elec + pitch_elec_offset + PITCH_STATOR_SIGN * pidCmd[PITCH])` | 固定偏移和角度包裹会参与最终电角，不能只看 `pidCmd[PITCH]` |
+| Yaw | `wrapToPif(-current_elec + YAW_STATOR_SIGN * pidCmd[YAW])` | 当前电角前的负号属于轴向符号约定，真实方向仍需硬件验证【待验证】 |
+
+因此，`pidCmd[]` 平滑只能说明“控制补偿项”被平滑；最终定子电角还受姿态角换算、符号、偏移和包裹影响。
+如果调试时看到 `pidCmd[]` 变化平滑但电机响应仍突变，应继续进入第29章和第30章的电角合成、正弦查表和定时器通道映射，
+不能仅凭第28章的限速逻辑判断硬件输出已经平滑【待验证】。
+
 Roll 使用：
 
 ```text
