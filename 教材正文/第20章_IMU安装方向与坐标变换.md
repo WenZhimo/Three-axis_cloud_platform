@@ -315,6 +315,16 @@ y' = z
 z' = -y
 ```
 
+把这三行再拆成调试表，会更容易定位变量含义：
+
+| `case 10`矩阵行 | 输出字段 | 读取的输入字段 | 调试含义 |
+|---|---|---|---|
+| `[1, 0, 0]` | `rotatedAccelData[XAXIS]` / `rotatedGyroData[XAXIS]` | `straightAccelData[XAXIS]` / `straightGyroData[XAXIS]` | X 轴保持不变。 |
+| `[0, 0, 1]` | `rotatedAccelData[YAXIS]` / `rotatedGyroData[YAXIS]` | `straightAccelData[ZAXIS]` / `straightGyroData[ZAXIS]` | 软件 Y 轴来自传感器 Z 轴。 |
+| `[0, -1, 0]` | `rotatedAccelData[ZAXIS]` / `rotatedGyroData[ZAXIS]` | `-straightAccelData[YAXIS]` / `-straightGyroData[YAXIS]` | 软件 Z 轴来自传感器 Y 轴取反。 |
+
+这张表只说明源码里的整数坐标变换。它不能证明实际云台俯仰、横滚或航向轴已经与这些软件轴完全一致；真实机械方向仍要用静止重力方向、单轴转动记录或安全闭环测试验证【待验证】。
+
 这和第19章读到的“读取后还会方向处理”连接起来：后续 `rawAccel[YAXIS]` 不再只是原始 Y 轴，而是矩阵处理后的 Y 轴。
 
 从标准旋转矩阵形式看，`case 10` 等价于绕 X 轴旋转 `-90°` 的有符号置换：
