@@ -310,6 +310,14 @@ MX_USART3_UART_Init()
 | 符号进入镜像 | `HAL_MspInit()` / `HAL_UART_MspInit()` | - | - | `Debug/Three-axis_cloud_platformV2.map` | 证明两个 MSP 符号被链接进当前镜像，不能证明每次上电都越过所有初始化错误路径。 |
 | 宏语义来源 | `AFIO_MAPR_USART3_REMAP_*` / `AFIO_MAPR_SWJ_CFG_*` | - | - | `stm32f1xx_hal_gpio_ex.h` / `stm32f103xe.h` | 证明 partial remap 和 JTAG disable 的位域常量来源，不能替代运行时寄存器读数。 |
 
+### 7.1 `AFIO->MAPR` 最终地址与宏展开边界
+
+当前 `Debug/Three-axis_cloud_platformV2.map` 中，`HAL_MspInit()` 位于 `0x08001a58`，`HAL_UART_MspInit()` 位于 `0x080024bc`。这说明本章讨论的两个关键入口已经进入当前最终 Flash 镜像，而不是只停留在源码文本或输入对象文件里。
+
+`Debug/Three-axis_cloud_platformV2.list` 还能把这两个入口展开到指令级：`HAL_MspInit()` 中能看到 `__HAL_AFIO_REMAP_SWJ_NOJTAG()`，其反汇编旁注指向对 `AFIO->MAPR` 的读改写；`HAL_UART_MspInit()` 中能看到 `__HAL_AFIO_REMAP_USART3_PARTIAL()`，其反汇编同样指向 `AFIO->MAPR` 的读改写流程。对照头文件，`AFIO_MAPR_USART3_REMAP_PARTIALREMAP` 的值是 `0x00000010`，`AFIO_MAPR_SWJ_CFG_JTAGDISABLE` 的值是 `0x02000000`，而 `AFIO_MAPR_SWJ_CFG_Msk` 的掩码是 `0x07000000`。
+
+这说明本章可以精确写成“当前 Debug 构建中，AFIO 重映射和 SWD 保留的宏调用已经进入最终镜像，并在 `.list` 中展开为对 `AFIO->MAPR` 的读改写路径”。但仍不能把这等同为“调试器已经连上目标板”或“USART3 一定已经在 PC10/PC11 上正常收发”；前者需要 ST-LINK/GDB 或下载日志，后者还需要外部串口日志和引脚电平证据【待验证】。同样，`AFIO_REMAP_PARTIAL()` 的写回语义是对 `MAPR` 做掩码读改写，不是把某个单一常量整寄存器覆盖到 `AFIO->MAPR`。
+
 因此，第08章引用 `.map/.list/.su/.cyclo` 时只能证明“当前 Debug 构建包含 AFIO/SWD 与 USART3 remap 相关入口和宏展开痕迹”。它们不能简单相加成最大栈深，不能换算成真实执行时间，也不能把 `SWJ_CFG` 或 `USART3_REMAP` 写成已经通过外部工具验证；这些仍需 `RCC->APB2ENR`、`AFIO->MAPR` 运行观察、ST-LINK/GDB 日志、串口主机日志或示波器/逻辑分析仪证据【待验证】。
 
 ### 本节证据边界
