@@ -148,6 +148,19 @@ printf()
 
 因此，在当前 Debug 链接产物中，`printf()` 的底层写路径应以 `usart.c` 的 `_write()` 为准。若切换构建配置或清理重建，应重新检查对应配置的 `.map` 文件。
 
+#### `_write()`重定向的构建证据边界
+
+`_write()` 重定向不是一句“printf 走串口”就能完整说明。当前仓库可以把证据拆成四层：
+
+| 层级 | 当前证据 | 能证明什么 | 不能证明什么 |
+|---|---|---|---|
+| 源码入口 | `syscalls.c` 弱 `_write()`；`usart.c` 强 `_write()` 和 `fputc()` | 工程提供了 Newlib 输出适配入口，且项目输出目标写成 `huart3` | 标准库每次运行一定选择哪条内部缓冲路径 |
+| 链接结果 | `.map` 中最终 `_write` 位于 `./Core/Src/usart.o`，`syscalls.o` 的弱 `_write` 未占最终运行地址 | 当前 Debug ELF 的底层写入口由 USART3 实现覆盖 | Release 或重新生成后的链接结果仍保持不变 |
+| 反汇编调用边 | `.list` 中 `_write_r` 跳转到 `0x0800257c <_write>`，项目 `_write()` 循环调用 `HAL_UART_Transmit()` | 当前构建存在 Newlib 可重入包装到项目 `_write()`、再到 HAL UART 的静态调用边 | 某次上电已经执行到该路径，或每个字符都被主机收到 |
+| 运行与外部观察 | 断点观察 `_write()`、`HAL_UART_Transmit()` 返回值、`huart3.gState`，以及 PC10 波形或终端日志【待验证】 | 可以验证现场是否真正发送、是否超时或忙碌、主机是否接收 | 当前仓库没有这些现场记录，不能宣称物理串口输出已验证 |
+
+还要注意 `file` 参数的边界。`printf()`、`fprintf(stderr, ...)` 或其它标准流最终可能都通过 `_write(int file, ...)` 传入不同文件描述符，但当前 `usart.c` 实现没有检查 `file`，也没有按 stdout/stderr 分流。因此本章只能说“当前项目把底层写入统一折叠到 USART3 发送路径”，不能写成“已经实现独立标准输出、标准错误和串口日志等级”。
+
 ### 2. 堆内存文件
 
 `Core/Src/sysmem.c` 实现 `_sbrk()`。它读取链接脚本中的 `_end`、`_estack` 和 `_Min_Stack_Size`，把 newlib 堆限制在 `.bss` 之后和预留 MSP 栈之前。
