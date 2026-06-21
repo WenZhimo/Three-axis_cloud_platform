@@ -380,6 +380,14 @@ APB2 = HCLK / 1 = 72 MHz
 
 当前临界区使用 `__disable_irq()` 后直接 `__enable_irq()`。如果函数进入时中断本来已经被外层屏蔽，这种写法会在退出时无条件重新打开中断。当前源码中这些临界区很短，且位于电机 PWM 更新路径；本章只记录风险边界，不直接判定它已经造成问题。若后续需要提高健壮性，可用 `uint32_t primask = __get_PRIMASK(); __disable_irq(); ... __set_PRIMASK(primask);` 保留进入前状态。
 
+### 9.1 `PRIMASK` 临界区的构建产物证据边界
+
+`Drivers/CMSIS/Include/cmsis_gcc.h` 把 `__disable_irq()` 和 `__enable_irq()` 分别定义为 `cpsid i` 与 `cpsie i`，并另外提供了 `__get_PRIMASK()` / `__set_PRIMASK()` 作为保存和恢复中断屏蔽状态的入口。当前项目里，`Drivers/CustomDrivers/Src/drv_pwmMotors.c` 的 `PWM_Motor_Init()` 和 `PWM_Motor_SetAngle()` 都直接调用了这组接口。
+
+`Debug/Three-axis_cloud_platformV2.list` 能把这些调用展开到指令级：`PWM_Motor_Init()` 里能看到 `cpsid i`、三次 `TIMx->CNT = 0` 和 `cpsie i`，`PWM_Motor_SetAngle()` 里也能看到对应的 `cpsid i` / `cpsie i` 包围多路 `TIMx->CCR` 写入。这样可以证明“临界区写法”和“寄存器写入顺序”已经进入当前 Debug 构建，但不能证明当时的 `PRIMASK` 原值，也不能证明退出后一定恢复到进入前的中断状态【待验证】。
+
+`Debug/Three-axis_cloud_platformV2.map` 只能进一步证明 `PWM_Motor_Init`、`PWM_Motor_SetAngle` 和相关代码路径进入了最终链接产物；它不单独给出 `cpsid i` / `cpsie i` 这种内联指令的原地上下文，也不能替代运行时读回、断点观察或中断屏蔽状态截图。
+
 ### 10. `usbd_conf.c` 中的系统控制访问
 
 `USB_DEVICE/Target/usbd_conf.c` 的挂起回调中，在特定条件下写 `SCB->SCR`。这属于系统控制块寄存器访问。
