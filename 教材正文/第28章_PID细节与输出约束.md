@@ -788,6 +788,31 @@ updatePID()
 调试变化率限制时，应比较 `pidCmdPrev[]` 与限幅后的 `pidCmd[]`，不要直接拿 `rollPidRaw`
 和 `pidCmdPrev[]` 判断速率限制是否生效。
 
+#### 输出变量生命周期证据边界
+
+第28章最容易混淆的地方，是同一个轴在一帧内会出现多个“看起来都像输出”的变量。
+按源码顺序，它们代表不同生命周期阶段：
+
+| 阶段 | Roll 证据 | Pitch/Yaw 证据 | 能说明什么 | 不能说明什么 |
+| --- | --- | --- | --- | --- |
+| PID原始输出 | `rollPidRaw = updatePID(...)` | `pidCmd[axis] = updatePID(...)` 后、NaN/Inf 回退前的值 | PID 公式、积分状态和 D 项滤波给出的原始补偿量 | 已经满足幅值限制或变化率限制 |
+| 幅值限幅后输出 | `pidCmd[ROLL] = clampf(rollPidRaw, ...)`，`rollDiag.pidClamped` | `pidCmd[axis]` 被限制到 `±*_CMD_LIMIT_RAD` 后的值 | 补偿量已经进入轴级最大幅值边界 | 本帧变化速度已经满足限制 |
+| 速率判断前差值 | `outputRate[ROLL] = pidCmd[ROLL] - pidCmdPrev[ROLL]`，`rollDiag.dPidRaw` | `outputRate[PITCH/YAW] = pidCmd[axis] - pidCmdPrev[axis]` | 本帧限速前，约束后输出相对上一帧历史的差值 | 最终实际应用的帧间差值一定等于它 |
+| 速率限制后输出 | `pidCmd[ROLL]` 被改写为 `pidCmdPrev[ROLL] ± rollStepLimit` 后，`rollDiag.pidApplied` | `pidCmd[PITCH/YAW]` 被改写为 `pidCmdPrev[axis] ± eepromConfig.rateLimit` 后 | 真正参与后续电角合成的 PID 补偿量 | 电角方向、PWM占空比和电机响应已经正确 |
+| 下一帧历史 | `pidCmdPrev[ROLL] = pidCmd[ROLL]` | `pidCmdPrev[PITCH/YAW] = pidCmd[axis]` | 下一帧速率限制的历史基准已经更新 | 保存了原始 PID 输出或限速前差值 |
+
+因此，`outputRate[]` 更适合作为“是否触发限速”的诊断入口，而不是最终执行变化量。
+如果本帧发生速率限制，最终实际应用差值应重新用：
+
+```text
+actualDelta[axis] = pidCmd_after_rate_limit[axis] - pidCmdPrev_before_update[axis]
+```
+
+来判断。Roll 的 `rollDiag` 帮助把这些阶段拆开：`pidRaw` 是 PID 原始值，
+`pidClamped` 是幅值限幅后值，`dPidRaw` 是限速前差值，`pidApplied` 是速率限制后真正应用的值。
+Pitch/Yaw 当前没有同等细粒度诊断结构，调试时需要手动在限幅前、限幅后、限速后和
+`pidCmdPrev[]` 更新前分别打点；否则容易把“限速前差值很大”误判为“最终电角变化同样很大”。
+
 ### 8.10 仿真脚本边界
 
 `tools/pid_tuning_sim.py` 中 `RC_D_FILTER = 1/(2π*20)`，与固件 `F_CUT=20Hz` 对应。脚本的 `update_pid()` 也包含：
@@ -1306,6 +1331,8 @@ Pitch/Yaw 直接使用 `rateLimit`。
 - `rollDiag.pidRaw`、`pidClamped`、`pidApplied` 分别对应 PID 原始输出、幅值限幅后值和速率限制后值。
 - `rollDiag.dPidRaw` 是速率限制前的输出差值，不等于受限后的最终帧间变化量。
 - `rollDiag.stepLimit` 记录 `rateLimit * safeDt`，低于最小步长时不等于实际 Roll 限速阈值。
+- `pidCmd[]` 在同一帧内会从 PID 原始输出逐步变成幅值限幅后值和速率限制后值；
+  调试时必须记录阶段位置，不能只按变量名判断它代表哪一层输出。
 - 三轴 `outputRate[]` 都是限速判断前差值，不一定等于最终实际应用的帧间变化量。
 - `pitchTargetSlew`、`yawTargetSlew`、`yawCtrlAngle` 等状态当前只证明定义存在，不能证明 Pitch/Yaw 目标斜坡已接入。
 - `YAW_CTRL_LPF_TAU_S`、`YAW_ERR_DEADBAND_RAD` 和 Roll 收敛门控宏当前不能写成已生效运行逻辑。
@@ -1325,6 +1352,7 @@ Pitch/Yaw 直接使用 `rateLimit`。
 - 目标角斜坡机制当前不能写成三轴都已接入。
 - Pitch/Yaw 的本轴积分阈值宏当前不能写成已经生效的本地门控。
 - Roll 的 `rollDiag.stepLimit` 不一定等于实际生效的最终步长限制。
+- `pidCmdPrev[]` 更新发生在速率限制之后，它是下一帧历史基准，不是原始 PID 输出缓存。
 - `outputRate[]` 不能直接当作最终实际输出变化量。
 - 原始 D 项 `[-300, 300]` 限幅不能直接等同于每帧 D 输出贡献上限。
 - 预留斜坡、Yaw 平滑和 Roll 收敛门控变量需要运行路径证据才能写成已生效机制。
