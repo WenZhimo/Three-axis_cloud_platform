@@ -338,6 +338,32 @@ t_100_char ≈ 8.68ms
 
 还有一个并发边界：`HAL_UART_Transmit()` 使用 `huart3.gState` 判断发送状态。如果在一次阻塞发送尚未结束时，另一路径再次调用 `printf()`，HAL 可能返回 `HAL_BUSY`。当前 `_write()` 忽略该返回值，所以上层不容易发现这类丢输出或输出不完整问题。当前仓库没有在中断服务函数中调用 `printf()` 的证据；教材仍应提醒读者不要轻易把阻塞 `printf()` 放入 ISR 或高频实时路径。
 
+#### `_write()`返回值与错误传播边界
+
+`_write(int file, char *ptr, int len)` 的返回值本来是标准库判断“底层写出了多少字节”的入口。
+但当前项目实现把这条反馈链路截断了：
+
+```text
+for DataIdx in 0..len-1:
+    HAL_UART_Transmit(...)
+return len
+```
+
+因此，本项目的 UART 调试输出要拆成五层看：
+
+| 层级 | 当前源码行为 | 能证明什么 | 不能证明什么 |
+|---|---|---|---|
+| 输出流选择 | `file` 参数未被使用 | stdout、stderr 等标准流都会折叠到同一条 USART3 路径 | 不能证明工程已有日志级别、错误流或多设备分流 |
+| 单字节发送 | 每个字符都调用一次 `HAL_UART_Transmit(&huart3, ..., 1, 0xFFFF)` | 软件层尝试逐字节送入 USART3 | 不能证明每次 HAL 调用都返回 `HAL_OK` |
+| HAL状态 | `HAL_UART_Transmit()` 可能返回 `HAL_OK`、`HAL_BUSY` 或 `HAL_TIMEOUT` | 可通过断点观察 `huart3.gState`、`ErrorCode` 和返回值【待验证】 | 当前 `_write()` 没有保存或上报这些状态 |
+| Newlib感知 | `_write()` 无条件返回 `len` | 上层格式化函数会看到“请求长度已写完”的软件返回值 | 不能把 `printf()` 返回成功写成真实串口完整发送成功 |
+| 外部接收 | 需要终端日志、逻辑分析仪或串口抓包证明【待验证】 | 可以证明主机端实际收到哪些字节【待验证】 | 仓库源码和 `.list` 不能替代主机接收证据 |
+
+这个边界对调试很重要。若终端偶发缺字、输出卡顿或日志顺序异常，
+仅看 `printf()` 返回值可能找不到原因；应在 `_write()` 内临时记录
+`HAL_UART_Transmit()` 返回状态，或在调试器中观察 `huart3.gState`、`ErrorCode`
+和 PC10 波形【待验证】。这些记录属于现场调试证据，不能由当前源码静态推出。
+
 ### 3. `fputc()` 兼容路径
 
 `fputc()` 的输入是单个字符。它同样调用 `HAL_UART_Transmit(&huart3, ...)`，并返回传入字符。
