@@ -366,6 +366,23 @@ USB reset 回调最终进入 `USBD_LL_Reset()`，中间件会打开 EP0 OUT 和 
 
 `.list` 提供更强的调用证据：`main()` 中存在到 `MX_USB_DEVICE_Init()` 的分支调用；`MX_USB_DEVICE_Init()` 内部依次调用 `USBD_Init()`、`USBD_RegisterClass()`、`USBD_CDC_RegisterInterface()` 和 `USBD_Start()`；`USB_LP_CAN1_RX0_IRQHandler()` 会把中断交给 `HAL_PCD_IRQHandler(&hpcd_USB_FS)`；PCD 处理路径中可以看到 reset、setup、data in/out、SOF 等回调桥的调用点。
 
+`Debug/USB_DEVICE/App/usb_device.su` 和对应 `.cyclo` 文件还能看到 `MX_USB_DEVICE_Init` 的函数级静态资源记录：静态栈使用量为 8 字节，圈复杂度为 5。
+
+`Debug/USB_DEVICE/Target/usbd_conf.su` 和对应 `.cyclo` 文件能覆盖项目提供的 PCD 到 USBD 连接层：
+
+- `HAL_PCD_MspInit` 的静态栈使用量为 24 字节，圈复杂度为 2。
+- `USBD_LL_Init` 的静态栈使用量为 16 字节，圈复杂度为 2。
+- `USBD_LL_Start` 的静态栈使用量为 24 字节，圈复杂度为 1。
+- `HAL_PCD_SetupStageCallback`、`HAL_PCD_DataOutStageCallback` 和 `HAL_PCD_DataInStageCallback` 的静态栈使用量均为 16 字节，圈复杂度均为 1。
+- `HAL_PCD_ResetCallback` 的静态栈使用量为 24 字节，圈复杂度为 2。
+
+`Debug/Middlewares/ST/STM32_USB_Device_Library/Core/Src/usbd_core.su` 和对应 `.cyclo` 文件中，`USBD_Init` 为 24 字节静态栈、圈复杂度 4，`USBD_RegisterClass` 为 24 字节静态栈、圈复杂度 2，`USBD_Start` 为 16 字节静态栈、圈复杂度 1。
+`Debug/Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Src/usbd_cdc.su` 还记录 `USBD_CDC_RegisterInterface` 为 24 字节静态栈、圈复杂度 2。
+
+HAL PCD 层也有对应记录：`Debug/Drivers/STM32F1xx_HAL_Driver/Src/stm32f1xx_hal_pcd.su` 中 `HAL_PCD_Init` 为 24 字节静态栈、圈复杂度 8，`HAL_PCD_Start` 为 16 字节静态栈、圈复杂度 2，`HAL_PCD_IRQHandler` 为 40 字节静态栈、圈复杂度 12。
+
+这些 `.su/.cyclo` 条目只能证明当前编译选项下的函数级静态栈和圈复杂度记录。它们不能证明主机已经完成枚举、设备进入 `USBD_STATE_CONFIGURED`、CDC 虚拟串口已在主机侧出现，也不能替代中断嵌套后的完整最坏栈深度分析。若 `.su/.cyclo` 中出现某个函数名，还必须继续结合 `.map` 是否有最终地址和 `.list` 是否有调用点判断其是否形成当前可执行路径。
+
 但同一个 `.map` 也显示 `CDC_Transmit_FS()` 和 `USBD_CDC_TransmitPacket()` 位于地址为 `0x00000000` 的输入段附近，属于当前构建中被丢弃的发送相关函数段。它们只能说明源码和头文件提供了发送接口，不能证明当前项目已经存在 USB CDC 业务发送路径。
 
 CDC 接收路径还要区分“函数表注册”和“直接分支调用”：`USBD_Interface_fops_FS` 中保存了 `CDC_Receive_FS`，`USBD_CDC_RegisterInterface()` 把该函数表写入 `pdev->pUserData`，中间件 DataOut 路径再通过 `Receive` 函数指针回调应用层。`CDC_Receive_FS()` 函数体内则能在 `.list` 中看到重新设置接收缓冲并调用 `USBD_CDC_ReceivePacket()` 的分支调用。
@@ -642,6 +659,7 @@ PMA 与端点检查：
 - `low_power_enable = DISABLE` 说明 suspend 回调中的深睡眠分支不是当前默认启用路径。
 - `Debug/objects.list` 证明 USB Device Library 核心、CDC 类和 USB_DEVICE 适配文件参与当前 Debug 构建。
 - `Debug/Three-axis_cloud_platformV2.map` 与 `.list` 进一步证明 USB Device 初始化、CDC 类注册、PCD 回调桥和 CDC 接收相关函数进入最终镜像；同时 `CDC_Transmit_FS()` 与 `USBD_CDC_TransmitPacket()` 当前处于 `0x00000000` 输入段，不能写成已经存在 CDC 主动发送业务路径。
+- 当前 Debug `.su/.cyclo` 文件显示：`MX_USB_DEVICE_Init` 为 8 字节静态栈、圈复杂度 5；`USBD_LL_Init` 为 16 字节静态栈、圈复杂度 2；`HAL_PCD_IRQHandler` 为 40 字节静态栈、圈复杂度 12。它们属于静态构建资源记录，不证明 USB 主机侧枚举成功。
 
 本章边界：
 
@@ -691,6 +709,16 @@ PMA 与端点检查：
 - `Debug/objects.list`
 - `Debug/Three-axis_cloud_platformV2.map`
 - `Debug/Three-axis_cloud_platformV2.list`
+- `Debug/USB_DEVICE/App/usb_device.su`
+- `Debug/USB_DEVICE/App/usb_device.cyclo`
+- `Debug/USB_DEVICE/Target/usbd_conf.su`
+- `Debug/USB_DEVICE/Target/usbd_conf.cyclo`
+- `Debug/Middlewares/ST/STM32_USB_Device_Library/Core/Src/usbd_core.su`
+- `Debug/Middlewares/ST/STM32_USB_Device_Library/Core/Src/usbd_core.cyclo`
+- `Debug/Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Src/usbd_cdc.su`
+- `Debug/Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Src/usbd_cdc.cyclo`
+- `Debug/Drivers/STM32F1xx_HAL_Driver/Src/stm32f1xx_hal_pcd.su`
+- `Debug/Drivers/STM32F1xx_HAL_Driver/Src/stm32f1xx_hal_pcd.cyclo`
 - `Debug/sources.mk`
 - `Debug/makefile`
 
