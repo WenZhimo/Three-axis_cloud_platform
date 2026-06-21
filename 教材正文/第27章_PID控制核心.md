@@ -536,6 +536,23 @@ PIDparameters：当前轴参数和历史状态
 但第26章已经指出，AHRS 使用的是进入姿态函数前的原始 `dt500Hz`，所以不要把 PID 内部保护扩大为
 整条控制链路的全局保护。
 
+### 8.3.1 deltaT回退与safeDt分层
+
+`deltaT` 回退和 `safeDt` 不是同一个保护点。前者在 `pid.c` 的 `updatePID()` 内部发生，
+保护的是 PID 本体的积分、微分和 D 项滤波计算；后者出现在 `computeMotorCommands.c` 的部分轴分支中，
+保护的是分支内目标斜坡、PID 实参或后级输出速率限制。按当前源码可以拆成四条路径：
+
+| 路径 | 传给 `updatePID()` 的时间步 | PID 外部是否继续使用 `safeDt` | 教学边界 |
+|---|---|---|---|
+| Roll 回中/回零分支 | 不调用 `updatePID()` | 使用 `safeDt` 计算 `ROLL_SLEW_RAD_S * safeDt` | 这是目标斜坡保护，不是 PID 回退 |
+| Roll 后续 PID 分支 | 先在轴分支生成 `safeDt`，再传给 `updatePID()` | 使用 `rateLimit * safeDt` 约束单帧输出变化 | PID 本体和 Roll 后级限速都使用净化后的时间步 |
+| Pitch PID 分支 | 直接传入 `dt` | 输出速率限制直接比较 `eepromConfig.rateLimit` | PID 内部可能回退 `deltaT`，但后级限速没有乘 `dt` |
+| Yaw PID 分支 | 直接传入 `dt` | 输出速率限制直接比较 `eepromConfig.rateLimit` | 与 Pitch 相同，不能推导为全轴统一的每秒速率限制 |
+
+因此，`updatePID()` 的异常时间步回退只能证明 PID 内部的 I/D 计算不会直接使用异常 `deltaT`。
+它不能证明 AHRS、Roll 目标斜坡、Pitch/Yaw 后级输出速率限制都使用同一个受保护时间步。
+若要判断这些差异是否为有意设计，需要结合轴使能状态、连续运行日志和电机响应记录，当前保持【待验证】。
+
 ### 8.4 误差和角度归一化
 
 `updatePID()` 先计算：
