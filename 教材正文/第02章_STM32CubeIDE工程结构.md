@@ -229,6 +229,20 @@ USB_DEVICE/Target
 
 因此，本章可以写成“工程配置和 Debug 生成文件共同说明当前仓库具备 CubeIDE 管理构建入口，并已经生成可追踪的 ELF/map/list 证据”。不能写成“本机 IDE 当前索引一定正常”“目标板已经烧录成功”或“所有源码都一定进入最终执行路径”。这些结论分别需要 IDE 现场、下载日志、调试会话或第04章更细的构建产物分析支撑；缺少证据时保持【待验证】。
 
+### 6.5 单个源文件到ELF的证据链
+
+以 `Core/Src/main.c` 为例，可以把第02章的工程结构证据收束成一条更具体的构建证据链：
+
+| 证据文件 | 当前可证明的事实 | 不能直接证明的事实 |
+| --- | --- | --- |
+| `Debug/Core/Src/subdir.mk` | `../Core/Src/main.c` 被列入 `C_SRCS`，并映射到 `./Core/Src/main.o`；规则 `Core/Src/%.o ...: ../Core/Src/%.c Core/Src/subdir.mk` 使用 `arm-none-eabi-gcc`、`-DDEBUG`、`-DUSE_HAL_DRIVER`、`-DSTM32F103xE`、`-O0`、`-ffunction-sections`、`-fdata-sections`、`-fstack-usage` 和 `-fcyclomatic-complexity` 生成对象与辅助文件。 | 不能证明 IDE 索引已经刷新，也不能证明该 `.o` 中每个函数最后都进入 ELF。 |
+| `Debug/objects.list` | `./Core/Src/main.o` 和 `./Core/Startup/startup_stm32f103rctx.o` 被列为链接输入。 | 不能证明链接后所有输入段都被保留，因为链接命令启用了 `--gc-sections`。 |
+| `Debug/makefile` | 链接规则使用 `@"objects.list"` 和 `STM32F103RCTX_FLASH.ld` 生成 `Three-axis_cloud_platformV2.elf` 与 `Three-axis_cloud_platformV2.map`；同一 makefile 还用 `arm-none-eabi-objdump -h -S $(EXECUTABLES)` 生成 `Three-axis_cloud_platformV2.list`。 | 不能证明 ELF 已经下载到目标板，也不能证明运行时行为正确。 |
+| `Debug/Three-axis_cloud_platformV2.map` | 能看到 `LOAD ./Core/Src/main.o`、`LOAD ./Core/Startup/startup_stm32f103rctx.o`，并能定位 `.isr_vector 0x08000000`、`.text.main 0x080014d4`、`.bss.sensors 0x20000528` 等最终链接结果。 | 不能证明目标板正在执行这些地址上的代码，也不能证明 RAM 中变量值符合预期。 |
+| `Debug/Three-axis_cloud_platformV2.list` | 由当前 ELF 反汇编生成，适合继续核对 C 语句、段信息和指令地址之间的对应关系。 | 不能替代 `.map` 的链接保留判断，也不是运行时日志。 |
+
+这条链的教学价值在于把“源文件存在”“源文件被生成规则覆盖”“对象文件被交给链接器”“段被链接到最终地址”“ELF 被反汇编展示”分开。后续章节如果要证明 `main()` 中某条初始化语句、某个中断向量或某个全局对象确实进入当前 Debug 构建，应优先沿着这条链逐层核对；如果要证明烧录、启动、传感器读数或外设响应，则仍需下载日志、调试会话、串口输出或硬件实测，当前只应写作【待验证】。
+
 ## 7. 项目中的应用
 
 本章对应项目中的工程入口层。
@@ -598,6 +612,7 @@ encoding/<project>=UTF-8
 - `.settings/org.eclipse.core.resources.prefs`
 - `.settings/stm32cubeide.project.prefs`
 - `Debug/sources.mk`
+- `Debug/Core/Src/subdir.mk`
 - `Debug/objects.list`
 - `Debug/makefile`
 - `Debug/Three-axis_cloud_platformV2.map`
