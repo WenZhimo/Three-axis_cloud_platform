@@ -976,6 +976,24 @@ alpha = 0.002 / (0.00796 + 0.002) ~= 0.201
 - `computeMotorCommands()` 内部可见多处 `wrapToPif()` 调用，例如 `0x0800448c`、
   `0x08004840` 和 `0x08004a62`。
 
+`.su/.cyclo` 还能把 PID 主链路的静态审查边界补得更细。当前 Debug 构建中：
+
+| 函数 | 静态栈用量 | 圈复杂度 | 证据文件 |
+| --- | --- | --- | --- |
+| `standardRadianFormat()` | 16 字节 | 3 | `Debug/Drivers/SRC/Src/pid.su` / `.cyclo` |
+| `initPID()` | 16 字节 | 2 | `Debug/Drivers/SRC/Src/pid.su` / `.cyclo` |
+| `updatePID()` | 64 字节 | 34 | `Debug/Drivers/SRC/Src/pid.su` / `.cyclo` |
+| `zeroPIDintegralError()` | 16 字节 | 2 | `Debug/Drivers/SRC/Src/pid.su` / `.cyclo` |
+| `zeroPIDstates()` | 16 字节 | 2 | `Debug/Drivers/SRC/Src/pid.su` / `.cyclo` |
+| `computeMotorCommands()` | 120 字节 | 48 | `Debug/Drivers/SRC/Src/computeMotorCommands.su` / `.cyclo` |
+| `main()` | 56 字节 | 7 | `Debug/Core/Src/main.su` / `.cyclo` |
+
+这些结果说明当前 PID 链路在 Debug 构建中确实保留了静态栈报告和较高圈复杂度的控制函数。
+其中 `updatePID()` 和 `computeMotorCommands()` 仍是分支密集点；但静态栈数字不能直接相加成单帧峰值，
+也不能把圈复杂度当成实时耗时。`updatePID()` 的 64 字节静态栈只说明编译器对该函数生成的
+静态报告如此，不代表实际 500Hz 单次调用的运行时栈水位。真实 2ms 预算仍要由 `executionTime500Hz`
+日志、GPIO 翻转、逻辑分析仪或调试器测量来验证。
+
 因此，`.map/.list` 能证明当前构建中确实存在 PID 初始化、状态清零、500Hz 调用、
 三轴 `updatePID()` 路径、角度包裹 helper 和后级输出状态对象。
 它们不能证明 PID 参数合理、闭环稳定、电机方向安全、机械耦合正确、D 项调参效果符合预期，
@@ -1397,6 +1415,9 @@ Pitch/Yaw 分支则直接把 `pidCmd - pidCmdPrev` 与 `eepromConfig.rateLimit` 
   `zeroPIDstates()`、`computeMotorCommands()`、`standardRadianFormat()`、`wrapToPif()` 以及
   `eepromConfig`、`holdIntegrators`、`pidCmd[]`、`pidCmdPrev[]`、`outputRate[]`、`rollDiag`
   已进入当前 Debug 构建，并能看到 `main()` 与三轴 `updatePID()` 的反汇编调用点。
+- `.su/.cyclo` 还能补充 `updatePID()`、`initPID()`、`zeroPIDintegralError()`、
+  `zeroPIDstates()`、`standardRadianFormat()`、`computeMotorCommands()` 和 `main()` 的静态栈与圈复杂度，
+  但不能替代运行时栈水位、真实耗时或闭环稳定性证据。
 
 本章保留十二个边界：
 
@@ -1412,6 +1433,7 @@ Pitch/Yaw 分支则直接把 `pidCmd - pidCmdPrev` 与 `eepromConfig.rateLimit` 
 - 同一 `rateLimit` 字段在 Roll 与 Pitch/Yaw 输出速率限制中的 `dt` 使用方式不同，是否为有意轴差异需要设计意图或实测日志确认【待验证】。
 - LQR/MPC 只能作为未来架构迁移讨论，不能写成当前项目采用的控制方法。
 - 当前仓库和 Debug 构建产物能证明公式分支、变量状态、符号进入镜像和反汇编调用点，不能单独证明闭环稳定性；稳定性仍需硬件日志或测试记录【待验证】。
+- 当前 `.su/.cyclo` 不能写成运行时栈水位、单帧耗时或 2ms 预算达标证明。
 
 下一章将进入 `PID细节与输出约束`，进一步分析 D 项平滑、积分暂停、目标变化平滑、输出限幅和速率限制如何保护闭环控制不因瞬态误差或参数不当而失控。
 
@@ -1424,6 +1446,12 @@ Pitch/Yaw 分支则直接把 `pidCmd - pidCmdPrev` 与 `eepromConfig.rateLimit` 
 - 本仓库 `Drivers/SRC/Src/computeMotorCommands.c`。
 - 本仓库 `Debug/Three-axis_cloud_platformV2.map`。
 - 本仓库 `Debug/Three-axis_cloud_platformV2.list`。
+- 本仓库 `Debug/Drivers/SRC/Src/pid.su`。
+- 本仓库 `Debug/Drivers/SRC/Src/pid.cyclo`。
+- 本仓库 `Debug/Drivers/SRC/Src/computeMotorCommands.su`。
+- 本仓库 `Debug/Drivers/SRC/Src/computeMotorCommands.cyclo`。
+- 本仓库 `Debug/Core/Src/main.su`。
+- 本仓库 `Debug/Core/Src/main.cyclo`。
 - K. J. Astrom and T. Hagglund, PID Controllers: Theory, Design, and Tuning:
   https://portal.research.lu.se/en/publications/pid-controllers-theory-design-and-tuning/
 - K. J. Astrom and T. Hagglund, Advanced PID Control, Chapter 1:
@@ -1450,6 +1478,12 @@ Pitch/Yaw 分支则直接把 `pidCmd - pidCmdPrev` 与 `eepromConfig.rateLimit` 
 - `Drivers/SRC/Src/computeMotorCommands.c`
 - `Debug/Three-axis_cloud_platformV2.map`
 - `Debug/Three-axis_cloud_platformV2.list`
+- `Debug/Drivers/SRC/Src/pid.su`
+- `Debug/Drivers/SRC/Src/pid.cyclo`
+- `Debug/Drivers/SRC/Src/computeMotorCommands.su`
+- `Debug/Drivers/SRC/Src/computeMotorCommands.cyclo`
+- `Debug/Core/Src/main.su`
+- `Debug/Core/Src/main.cyclo`
 - 函数：`initPID()`
 - 函数：`updatePID()`
 - 函数：`zeroPIDintegralError()`
