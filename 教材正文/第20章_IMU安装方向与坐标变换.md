@@ -441,7 +441,24 @@ rawGyro[axis].value  = (int16_t)rotatedGyroData[axis];
 - 同一函数在矩阵乘法后把 `rotatedAccelData[axis]` 和 `rotatedGyroData[axis]` 写回 `rawAccel[axis].value` 与 `rawGyro[axis].value`。
 - `MPU6050_ComputeStaticError()` 也调用 `MPU6050_Read_And_Process()`，说明启动静态误差估计会经过当前方向处理路径。
 
-因此，`.map/.list` 能证明当前构建包含方向矩阵对象、方向初始化函数、矩阵乘法函数、连续读取函数，以及 `main() -> orientIMU()` 和 `MPU6050_Read_And_Process() -> matrixMultiply() -> rawAccel/rawGyro` 的构建路径。它们不能证明 `case 10` 与实物安装方向一定一致，不能证明矩阵处理后的坐标与电机机械轴完全匹配，也不能证明标定参数已经按同一方向矩阵重新采集。这些运行时和硬件一致性结论仍需调试器记录、传感器姿态动作记录、电机响应记录或标定日志；缺少证据时保持【待验证】。
+`Debug/Drivers/CustomDrivers/Src/mpu6050.su` 和同目录 `.cyclo` 还能给出本章方向处理函数的静态边界：
+
+- `orientIMU()`：静态栈 4 字节，圈复杂度 12。
+- `matrixMultiply()`：静态栈 24 字节，圈复杂度 5。
+- `MPU6050_Read_And_Process()`：静态栈 64 字节，圈复杂度 3。
+
+这组数字有两个教学价值。第一，`orientIMU()` 的栈帧很小，但圈复杂度较高，原因来自多个安装方向
+`case` 分支；所以读者不能只看栈用量，还要审查每个分支的矩阵合法性。第二，`matrixMultiply()`
+本体复杂度不高，但它被连续读取函数调用两次，并且结果直接写回 `rawAccel/rawGyro`；因此它的错误会沿
+加速度、陀螺仪、静态误差估计和后续 AHRS 输入继续传播。
+
+因此，`.map/.list/.su/.cyclo` 能证明当前构建包含方向矩阵对象、方向初始化函数、矩阵乘法函数、
+连续读取函数，以及 `main() -> orientIMU()` 和
+`MPU6050_Read_And_Process() -> matrixMultiply() -> rawAccel/rawGyro` 的构建路径与静态分析产物。
+它们不能证明 `case 10` 与实物安装方向一定一致，不能证明矩阵处理后的坐标与电机机械轴完全匹配，
+也不能证明标定参数已经按同一方向矩阵重新采集；静态栈和圈复杂度也不能证明运行时栈水位、真实耗时
+或方向分支选择一定符合实物。上述运行时和硬件一致性结论仍需调试器记录、传感器姿态动作记录、
+电机响应记录或标定日志；缺少证据时保持【待验证】。
 
 ### 本节证据边界
 
@@ -699,17 +716,20 @@ rawGyro[axis].value  = (int16_t)rotatedGyroData[axis];
 - `default` 分支不是单位矩阵，也不是有效方向矩阵，不能作为无旋转默认配置理解。
 - `rawAccel/rawGyro` 在进入物理量缩放前已经经过方向矩阵处理。
 - 当前 `.map/.list` 能证明 `orientationMatrix`、`orientIMU()`、`matrixMultiply()`、连续读取函数和方向处理写回路径进入最终构建。
+- 当前 `.su/.cyclo` 能补充 `orientIMU()`、`matrixMultiply()` 和 `MPU6050_Read_And_Process()`
+  的静态栈用量与圈复杂度边界，但不能替代运行时栈水位、方向分支选择或真实安装方向验证。
 - 加速度和陀螺仪使用同一个 `orientationMatrix`，保证二者进入后续 AHRS 前处于同一软件坐标约定。
 - `matrixMultiply()` 是当前 `3x3 * 3x1`、`int16_t`、有符号置换矩阵场景下的简化工具，
   不能直接当作通用矩阵库或浮点小角度安装误差补偿器。
 - 静态误差估计和校准流程读取的是方向处理后的 `rawAccel/rawGyro`，因此方向矩阵与标定参数存在轴系绑定关系。
 - 当前标定扣除可写成 `v_cal = R*v_raw - b_sw`，历史偏置参数只有在同一方向矩阵坐标系下才可直接复用。
 
-本章保留三个边界：
+本章保留以下边界：
 
 - 不证明 `case 10` 与实际安装必然一致，该项需要【待验证】。
 - 不展开四元数姿态解算，只说明方向矩阵为后续姿态输入提供坐标一致性。
 - 不修改固件中的矩阵类型、默认分支和强制方向编号，只把它们作为教材审查点记录。
+- 不把 `.su/.cyclo` 静态分析结果写成运行时栈水位、实际运行耗时或实物方向正确性证明。
 
 下一章将进入 `传感器标定、零偏与物理量缩放`，在已经完成连续读取和方向处理的基础上，分析项目如何处理温度漂移、静态零偏和物理单位转换。
 
@@ -721,6 +741,7 @@ rawGyro[axis].value  = (int16_t)rotatedGyroData[axis];
 - MathWorks Navigation Toolbox `SO(3) rotation` 文档。
 - 本仓库 `Drivers/CustomDrivers/Src/mpu6050.c` 和 `Core/Src/main.c`。
 - 本仓库 `Debug/Three-axis_cloud_platformV2.map` 和 `Debug/Three-axis_cloud_platformV2.list`。
+- 本仓库 `Debug/Drivers/CustomDrivers/Src/mpu6050.su` 和 `Debug/Drivers/CustomDrivers/Src/mpu6050.cyclo`。
 
 ### 章节尾部固定检查
 
@@ -740,6 +761,8 @@ rawGyro[axis].value  = (int16_t)rotatedGyroData[axis];
 - `Core/Src/main.c`
 - `Debug/Three-axis_cloud_platformV2.map`
 - `Debug/Three-axis_cloud_platformV2.list`
+- `Debug/Drivers/CustomDrivers/Src/mpu6050.su`
+- `Debug/Drivers/CustomDrivers/Src/mpu6050.cyclo`
 
 质量自检：
 
