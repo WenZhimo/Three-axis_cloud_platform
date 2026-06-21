@@ -296,9 +296,25 @@ MX_USART3_UART_Init()
 
 本章只确认串行调试接口保留与 AFIO 重映射。ST-LINK 启动配置、连接策略、GDB 停在 `main` 等内容属于后续 `ST-LINK与SWD调试配置`，不在本章展开。
 
+### 7. 构建产物证据边界
+
+当前 Debug 构建产物可以把 AFIO/SWD 证据从“源码中写了宏”推进到“宏所在函数进入最终镜像，并在 `.list` 中展开为对 `AFIO->MAPR` 的读改写路径”。这类证据适合确认入口、链接和函数级资源，但仍不能证明调试器已经连上目标板，也不能证明 USART3 已经实际输出字符。
+
+| 链路环节 | 函数或路径 | 静态栈估计 | 圈复杂度 | 证据文件 | 证据边界 |
+|---|---|---:|---:|---|---|
+| 全局MSP入口 | `HAL_Init()` 调用 `HAL_MspInit()` | - | - | `Debug/Three-axis_cloud_platformV2.list` | 证明 HAL 初始化主线会进入全局 MSP，不能证明 ST-LINK 已经连接成功。 |
+| SWD保留宏所在函数 | `HAL_MspInit()` | 24 字节 | 1 | `Debug/Core/Src/stm32f1xx_hal_msp.su` / `.cyclo` | 证明全局 MSP 函数进入构建，并包含 AFIO/PWR 时钟与 NOJTAG 配置入口。 |
+| NOJTAG宏展开 | `__HAL_AFIO_REMAP_SWJ_NOJTAG()` | - | - | `Debug/Three-axis_cloud_platformV2.list` | 证明当前反汇编旁注记录了 NOJTAG 宏路径，不能替代 ST-LINK 下载日志或断点证据。 |
+| USART3 MSP入口 | `HAL_UART_MspInit()` | 48 字节 | 2 | `Debug/Core/Src/usart.su` / `.cyclo` | 证明 USART3 MSP 函数进入构建，不能证明串口发送或主机接收成功。 |
+| USART3部分重映射宏展开 | `__HAL_AFIO_REMAP_USART3_PARTIAL()` | - | - | `Debug/Three-axis_cloud_platformV2.list` | 证明 `.list` 中保留了 partial remap 源码旁注和写 `AFIO->MAPR` 的路径，不能证明 PC10/PC11 外部连线正确。 |
+| 符号进入镜像 | `HAL_MspInit()` / `HAL_UART_MspInit()` | - | - | `Debug/Three-axis_cloud_platformV2.map` | 证明两个 MSP 符号被链接进当前镜像，不能证明每次上电都越过所有初始化错误路径。 |
+| 宏语义来源 | `AFIO_MAPR_USART3_REMAP_*` / `AFIO_MAPR_SWJ_CFG_*` | - | - | `stm32f1xx_hal_gpio_ex.h` / `stm32f103xe.h` | 证明 partial remap 和 JTAG disable 的位域常量来源，不能替代运行时寄存器读数。 |
+
+因此，第08章引用 `.map/.list/.su/.cyclo` 时只能证明“当前 Debug 构建包含 AFIO/SWD 与 USART3 remap 相关入口和宏展开痕迹”。它们不能简单相加成最大栈深，不能换算成真实执行时间，也不能把 `SWJ_CFG` 或 `USART3_REMAP` 写成已经通过外部工具验证；这些仍需 `RCC->APB2ENR`、`AFIO->MAPR` 运行观察、ST-LINK/GDB 日志、串口主机日志或示波器/逻辑分析仪证据【待验证】。
+
 ### 本节证据边界
 
-本节只根据当前仓库说明文件、函数、宏、变量和调用关系。运行时频率、外部硬件表现、主机侧现象、传感器方向、电机响应或真实控制效果仍需调试记录、日志或仓库外实测证据；缺少证据时保持【待验证】。
+本节只根据当前仓库说明文件、函数、宏、变量、调用关系和 Debug 构建产物。运行时频率、外部硬件表现、主机侧现象、传感器方向、电机响应、真实栈水位、函数耗时或真实控制效果仍需调试记录、日志或仓库外实测证据；缺少证据时保持【待验证】。
 
 ## 9. 调试方法
 
@@ -487,6 +503,7 @@ AFIO 时钟对应 `RCC->APB2ENR[0] = 1`，并能解释
   调试口保留则应结合 NOJTAG 源码链和 ST-LINK 实测证据。
 - `AFIO_REMAP_PARTIAL()` 内部出现的 `AFIO_MAPR_SWJ_CFG = 0x07000000`
   是掩码常量，不是项目最终调试接口目标值；不能把它误读成关闭 SW-DP。
+- `.map/.list` 能证明 `HAL_MspInit()`、`HAL_UART_MspInit()` 进入当前镜像并保留 NOJTAG/USART3 partial remap 的源码旁注，`.su/.cyclo` 能证明两个 MSP 函数的静态栈和圈复杂度条目。
 - 本章只建立引脚重映射和调试保留前提，UART 输出和 ST-LINK 调试配置留到后续章节。
 
 本章边界：
@@ -519,6 +536,12 @@ AFIO 时钟对应 `RCC->APB2ENR[0] = 1`，并能解释
 - `Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_gpio_ex.h`
 - `Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_rcc.h`
 - `Drivers/CMSIS/Device/ST/STM32F1xx/Include/stm32f103xe.h`
+- `Debug/Three-axis_cloud_platformV2.map`
+- `Debug/Three-axis_cloud_platformV2.list`
+- `Debug/Core/Src/stm32f1xx_hal_msp.su`
+- `Debug/Core/Src/stm32f1xx_hal_msp.cyclo`
+- `Debug/Core/Src/usart.su`
+- `Debug/Core/Src/usart.cyclo`
 
 外部权威资料：
 
