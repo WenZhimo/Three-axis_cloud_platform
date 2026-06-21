@@ -215,6 +215,20 @@ USB_DEVICE/Target
 
 这些文件能证明当前 Debug 构建产物的链接输入，但它们是生成结果，不是配置源头。若手动改了 `.cproject` 但没有重新生成或构建，Debug 目录可能仍保留旧产物。
 
+### 6.4 Debug输出文件的证据层级
+
+第02章只建立工程结构索引，但读者仍需要知道几个 Debug 文件的证明力不同，不能把它们混成“构建成功”的单一证据。
+
+`Debug/makefile` 是构建规则证据。当前 `main-build` 目标依赖 `Three-axis_cloud_platformV2.elf` 和 `secondary-outputs`；链接规则写明 `Three-axis_cloud_platformV2.elf Three-axis_cloud_platformV2.map: $(OBJS) $(USER_OBJS) ... STM32F103RCTX_FLASH.ld makefile objects.list`，并使用 `arm-none-eabi-gcc -o "Three-axis_cloud_platformV2.elf" @"objects.list" ... -T".../STM32F103RCTX_FLASH.ld" -Wl,-Map="Three-axis_cloud_platformV2.map"`。这证明 Debug 构建规则意图用 `objects.list` 和链接脚本生成 ELF 与 map 文件。
+
+`Debug/objects.list` 是链接输入证据。它能证明 `./Core/Src/main.o`、`./Core/Startup/startup_stm32f103rctx.o` 等对象被列为链接输入，但不能证明对象里的每个函数最终都保留；后续是否被 `--gc-sections` 丢弃，要继续看 `.map`。
+
+`Debug/Three-axis_cloud_platformV2.map` 是链接结果证据。它能证明输出目标为 `Three-axis_cloud_platformV2.elf elf32-littlearm`，并能看到 `LOAD ./Core/Src/main.o`、`LOAD ./Core/Startup/startup_stm32f103rctx.o`、`.isr_vector 0x08000000`、`.text.main` 等最终链接位置。它比 `objects.list` 更接近最终 ELF，但仍不能证明 ELF 已经下载到目标板运行。
+
+`Debug/Three-axis_cloud_platformV2.list` 是反汇编与源码对应证据。当前文件开头标明 `Three-axis_cloud_platformV2.elf: file format elf32-littlearm`，由 `Debug/makefile` 中的 `arm-none-eabi-objdump -h -S $(EXECUTABLES)` 生成。它能把部分 C 语句、段信息和指令位置对应起来，适合后续章节核对调用路径和寄存器访问；但它不是 IDE 配置源头，也不是运行时日志。
+
+因此，本章可以写成“工程配置和 Debug 生成文件共同说明当前仓库具备 CubeIDE 管理构建入口，并已经生成可追踪的 ELF/map/list 证据”。不能写成“本机 IDE 当前索引一定正常”“目标板已经烧录成功”或“所有源码都一定进入最终执行路径”。这些结论分别需要 IDE 现场、下载日志、调试会话或第04章更细的构建产物分析支撑；缺少证据时保持【待验证】。
+
 ## 7. 项目中的应用
 
 本章对应项目中的工程入口层。
@@ -586,6 +600,8 @@ encoding/<project>=UTF-8
 - `Debug/sources.mk`
 - `Debug/objects.list`
 - `Debug/makefile`
+- `Debug/Three-axis_cloud_platformV2.map`
+- `Debug/Three-axis_cloud_platformV2.list`
 
 配置项证据：
 
@@ -608,6 +624,14 @@ encoding/<project>=UTF-8
 - `Drivers/SRC/Src`
 - `USB_DEVICE/App`
 - `USB_DEVICE/Target`
+- `Three-axis_cloud_platformV2.elf`
+- `Three-axis_cloud_platformV2.map`
+- `Three-axis_cloud_platformV2.list`
+- `arm-none-eabi-gcc`
+- `arm-none-eabi-objdump`
+- `LOAD ./Core/Src/main.o`
+- `.isr_vector`
+- `.text.main`
 
 质量自检：
 
