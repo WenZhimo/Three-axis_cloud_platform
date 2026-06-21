@@ -336,8 +336,18 @@ TIM6 的配置意义留到第13章继续判断。
 - `mpu6050.c` 中静态零偏采样调用 `DWT_Delay_us(1000)`。
 - `DWT_Delay_us()` 的反汇编段读取 `DWT->CYCCNT`，并通过循环等待计数差达到目标值。
 
-这些构建产物证据能证明当前 Debug 镜像包含 DWT 启用、微秒时间戳消费、500Hz 时间差记录和 DWT 忙等函数调用路径。
-但它们不能证明板上运行的一定是同一个镜像，也不能证明 `CYCCNT` 在运行时确实递增、`DWT_Delay_us(1000)` 的墙钟等待精确等于 1000us、500Hz 周期没有抖动，或采样频率严格达到 1000Hz。上述运行时结论仍需要调试日志、寄存器观察、示波器或逻辑分析仪等实测证据；缺少证据时保持【待验证】。
+`Debug/Core/Src/main.su` 和 `Debug/Core/Src/main.cyclo` 还能给出函数级静态资源条目：
+
+- `micros` 的静态栈使用量为 32 字节，圈复杂度为 2。
+- `main` 的静态栈使用量为 56 字节，圈复杂度为 7。
+
+`Debug/Drivers/CustomDrivers/Src/mpu6050Calibration.su` 和对应 `.cyclo` 文件中，`DWT_Delay_us` 的静态栈使用量为 24 字节，圈复杂度为 2。
+
+`Debug/Drivers/STM32F1xx_HAL_Driver/Src/stm32f1xx_hal.su` 和对应 `.cyclo` 文件中，`HAL_GetTick` 的静态栈使用量为 4 字节，圈复杂度为 1。
+这条证据补上了 `micros()` 依赖 HAL 毫秒 tick 的函数级资源边界。
+
+这些构建产物证据能证明当前 Debug 镜像包含 DWT 启用、微秒时间戳消费、500Hz 时间差记录和 DWT 忙等函数调用路径，也能证明上述函数在当前编译选项下生成了静态栈与圈复杂度记录。
+但它们不能证明板上运行的一定是同一个镜像，也不能证明 `CYCCNT` 在运行时确实递增、`DWT_Delay_us(1000)` 的墙钟等待精确等于 1000us、500Hz 周期没有抖动、采样频率严格达到 1000Hz，或这些函数在中断嵌套、库函数调用和调试器停顿下的完整最坏栈深度。上述运行时结论仍需要调试日志、寄存器观察、示波器或逻辑分析仪等实测证据；缺少证据时保持【待验证】。
 
 ### 本节证据边界
 
@@ -559,6 +569,7 @@ SysTick 提供连续时基，DWT 负责短时间等待。
 - `micros()` 的 32 位微秒时间戳约每 71.58min 回绕一次，短间隔应使用无符号差值理解。
 - `micros()` 通过两次 `HAL_GetTick()` 与两次 `SysTick->VAL` 降低跨 tick 读数风险，但它不是关中断后的原子快照。
 - `DWT_Delay_us()` 当前使用整数除法和 32 位乘法，1000us 调用安全，但长等待和移植时钟需要重新审查。
+- 当前 Debug `.su/.cyclo` 文件显示：`micros` 为 32 字节静态栈、圈复杂度 2；`DWT_Delay_us` 为 24 字节静态栈、圈复杂度 2；`HAL_GetTick` 为 4 字节静态栈、圈复杂度 1。
 - `mpu6050Calibration.c` 在温度补偿采样中使用 `DWT_Delay_us(sampleRate)`。
 - 同一标定函数中的中间升温等待使用 `HAL_Delay(10000)`，实际时间基准是 HAL 毫秒 tick，而不是 DWT 微秒忙等。
 - `mpu6050.c` 在静态零偏采样中使用 `DWT_Delay_us(1000)`。
@@ -599,12 +610,21 @@ SysTick 提供连续时基，DWT 负责短时间等待。
 - `Drivers/CMSIS/Include/core_cm3.h`
 - `Debug/Three-axis_cloud_platformV2.map`
 - `Debug/Three-axis_cloud_platformV2.list`
+- `Debug/Core/Src/main.su`
+- `Debug/Core/Src/main.cyclo`
+- `Debug/Drivers/CustomDrivers/Src/mpu6050Calibration.su`
+- `Debug/Drivers/CustomDrivers/Src/mpu6050Calibration.cyclo`
+- `Debug/Drivers/STM32F1xx_HAL_Driver/Src/stm32f1xx_hal.su`
+- `Debug/Drivers/STM32F1xx_HAL_Driver/Src/stm32f1xx_hal.cyclo`
 
 外部权威资料：
 
 - ST RM0008 Reference manual: `https://www.st.com/resource/en/reference_manual/rm0008-stm32f101xx-stm32f102xx-stm32f103xx-stm32f105xx-and-stm32f107xx-advanced-armbased-32bit-mcus-stmicroelectronics.pdf`
 - ST DS5792 Datasheet for STM32F103xC/xD/xE: `https://www.st.com/resource/en/datasheet/stm32f103rc.pdf`
 - ST STM32F103 documentation page: `https://www.st.com/en/microcontrollers-microprocessors/stm32f103/documentation.html`
+- Arm CMSIS-Core `DWT_Type`: `https://arm-software.github.io/CMSIS_5/Core/html/structDWT__Type.html`
+- Arm CMSIS-Core `SysTick_Type`: `https://arm-software.github.io/CMSIS_5/Core/html/structSysTick__Type.html`
+- Arm CMSIS-Core `CoreDebug_Type`: `https://arm-software.github.io/CMSIS_5/Core/html/structCoreDebug__Type.html`
 
 符号、函数与配置项证据：
 
