@@ -496,6 +496,24 @@ ROLL:  P=0.03, I=0.0,  D=0.008
 
 还要注意，`windupGuard` 当前更像保留/配置字段。虽然它被赋值，但 `updatePID()` 的积分限幅没有直接使用它。
 
+#### PID参数来源与生效证据边界
+
+分析 `eepromConfig.PID[]` 时，建议把“默认配置”“源码覆盖”“当前构建”和“目标板运行观测”
+分成四层证据，不要把它们合并成一句“当前 PID 参数就是某组数值”。
+
+| 证据层级 | 当前可用证据 | 能证明什么 | 不能证明什么 |
+|---|---|---|---|
+| 默认配置层 | `Drivers/SRC/Src/config.c::init_eepromConfig(true)` 写入三轴默认 `P/I/D`、`B`、`dErrorCalc`、`type` 和 `rateLimit` | 证明复位初始化分支会给 `eepromConfig.PID[]` 准备一组默认参数 | 不能证明这些默认值会作为进入闭环前的最终参数，因为 `main()` 后面还有覆盖写入 |
+| 源码覆盖层 | `Core/Src/main.c` 在 `initPID()` 和 MPU6050 初始化之后，继续写入 Yaw/Pitch/Roll 的 `P/I/D` 与 D 项历史状态 | 证明当前源码层面的调试意图和写入顺序：覆盖发生在 `init_eepromConfig(true)` 之后 | 不能证明现有 Debug ELF 一定已经反映这些源码值，除非重新构建后的 `.list` 与源码一致 |
+| 当前构建层 | `Debug/Three-axis_cloud_platformV2.map` 包含 `.bss.eepromConfig`、`init_eepromConfig`、`initPID`、`updatePID`；`.list` 可见 `main()` 中的 PID 写入指令 | 证明某一次 Debug 构建中的对象、函数和写入路径进入了镜像 | 不能证明该镜像一定来自当前源码；当 `.list` 注释值与 `main.c` 数值不一致时，只能说明存在构建同步边界 |
+| 运行观测层 | 通过调试器在第一次 `computeMotorCommands()` 前读取 `eepromConfig.PID[ROLL/PITCH/YAW]` | 能证明目标板 RAM 中实际参与第一次 PID 计算的参数值【待验证】 | 仍不能证明闭环稳定、EEPROM 持久化恢复或电机实际输出方向正确【待验证】 |
+
+本仓库当前就能看到这个边界：`Core/Src/main.c` 中 Yaw 覆盖为 `P=0.03, I=0.01`，
+Pitch 覆盖为 `P=0.01, I=0.0`；而现有 `Debug/Three-axis_cloud_platformV2.list`
+对应注释仍可见 Yaw `P=2.0, I=0.0`、Pitch `P=0.5, I=0.05`。
+因此，本章只能把前者称为“当前源码写法”，把后者称为“现有 Debug 构建产物证据”。
+在没有重新构建、下载并读取目标板 RAM 前，不能把两者混合成唯一运行参数结论【待验证】。
+
 ### 8.3 updatePID输入
 
 `updatePID()` 的输入把控制问题压缩成五个量：
