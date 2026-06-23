@@ -213,6 +213,8 @@ USB_DEVICE/Target
 
 `Debug/objects.list` 则列出链接输入对象，例如 `main.o`、`startup_stm32f103rctx.o`、`drv_pwmMotors.o`、`computeMotorCommands.o`、`pid.o` 和 USB Device 相关对象。
 
+这里还要再分一层：`Debug/sources.mk` 只负责汇总“有哪些源目录参与构建”，真正把这些目录接进构建流程的是顶层 `Debug/makefile` 里的 `-include .../subdir.mk`。当前 makefile 明确包含了 `Core/Src/subdir.mk`、`Core/Startup/subdir.mk`、`Drivers/CustomDrivers/Src/subdir.mk`、`Drivers/SRC/Src/subdir.mk`、`Drivers/STM32F1xx_HAL_Driver/Src/subdir.mk`、`Middlewares/ST/STM32_USB_Device_Library/Core/Src/subdir.mk`、`Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Src/subdir.mk`、`USB_DEVICE/App/subdir.mk` 和 `USB_DEVICE/Target/subdir.mk`。这说明工程不只是“列出了目录”，而是把每个目录的编译规则真正纳入了 Debug 构建。若 `.cproject` 改了但 `Debug/makefile` 和各级 `subdir.mk` 没更新，教材应优先按生成出来的构建规则判断当前 Debug 实际会编哪些源文件，而不是只看配置源头。
+
 这些文件能证明当前 Debug 构建产物的链接输入，但它们是生成结果，不是配置源头。若手动改了 `.cproject` 但没有重新生成或构建，Debug 目录可能仍保留旧产物。
 
 ### 6.4 Debug输出文件的证据层级
