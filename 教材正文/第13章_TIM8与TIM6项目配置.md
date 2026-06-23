@@ -180,7 +180,9 @@ HAL 的 `HAL_TIM_Base_Start_IT()` 会同时做两件关键动作：调用 `__HAL
 
 `HAL_TIM_Base_MspInit()` 在 TIM8 分支中启用 TIM8 时钟，并配置 `TIM8_UP_IRQn` 的优先级为 1、0，然后使能该中断。
 
-对高级定时器 PWM 来说，还要注意主输出使能。HAL 的 `HAL_TIM_PWM_Start()` 在高级定时器实例上会执行主输出使能逻辑。
+对高级定时器 PWM 来说，还要注意输出启动链路。HAL 的 `HAL_TIM_PWM_Start()` 不只是“开始 PWM”这一句抽象动作；在当前 HAL 源码中，它至少会先调用 `TIM_CCxChannelCmd(..., TIM_CCx_ENABLE)` 打开对应通道输出，再在 `IS_TIM_BREAK_INSTANCE(htim->Instance)` 成立时调用 `__HAL_TIM_MOE_ENABLE(htim)` 置位高级定时器主输出使能，最后在非触发从模式下调用 `__HAL_TIM_ENABLE(htim)` 打开计数器。
+
+因此，`MX_TIM8_Init()` 中的 `HAL_TIM_PWM_ConfigChannel()`、`HAL_TIMEx_ConfigBreakDeadTime()` 和 `HAL_TIM_MspPostInit()` 只能证明 PWM 模式、BDTR 参数和 PC6/PC7/PC8 复用输出脚已经被初始化；它们不能替代 `CCER.CCxE`、`BDTR.MOE`、`CR1.CEN` 这些启动后状态证据。
 
 当前没有发现 `HAL_TIM_PWM_Start(&htim8, ...)`，因此不能仅凭 PC6/PC7/PC8 复用和 PWM 通道配置，推断 TIM8 引脚已经输出 PWM。
 
