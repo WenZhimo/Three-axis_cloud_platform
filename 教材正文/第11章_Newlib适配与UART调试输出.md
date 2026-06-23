@@ -529,6 +529,20 @@ return len
 
 当前项目能看到 USART3 RX 引脚 PC11 被配置，也能看到 `syscalls.c` 中存在弱 `_read()`；但没有看到项目把 `__io_getchar()` 强实现为 UART 接收。因此本章只能说“构建配置启用了浮点 scanf 库能力”，不能说“标准输入已经通过 UART 工作”。
 
+#### `scanf()` 输入路径的构建证据边界
+
+把当前证据拆开看，会发现它们证明的是不同层面的事实：
+
+- `.cproject` 和 `Debug/makefile` 中的 `-u _scanf_float`：证明链接器被要求保留浮点扫描格式支持。
+- `.map` 中的 `_scanf_float`：证明 `libc_nano.a` 的浮点扫描代码进入了当前 Debug ELF。
+- `.map` 中的 `_read_r` 和 `_read`：证明 newlib 的重入包装入口会落到项目提供的 `_read()` 符号。
+- `.list` 中 `_read_r` 对 `_read` 的跳转，以及 `_read()` 中逐字节写入 `*ptr++ = __io_getchar()` 的反汇编：证明当前输入底层仍停在弱 `_read()` / 弱 `__io_getchar()` 这一层。
+- `usart.c` 中 PC11 配置为 `USART3_RX`：证明硬件引脚和外设方向具备 RX 配置前提。
+
+这些证据合在一起，能说明“浮点 `scanf` 库代码存在，标准输入包装路径存在，USART3 RX 引脚也被配置”。但它们还不能证明“`scanf("%f", ...)` 已经能从 PC11 收到终端输入”，原因是当前源码没有看到强 `__io_getchar()`，也没有看到强 `_read()` 调用 `HAL_UART_Receive(&huart3, ...)` 或其它接收路径。
+
+`Debug/Three-axis_cloud_platformV2.map` 中虽然还能看到 `HAL_UART_Receive`、`HAL_UART_Receive_IT` 和 `HAL_UART_Receive_DMA` 相关条目，但这类条目只能说明 HAL 库提供或参与了这些接收 API 的链接/输入集合，不能自动推出 newlib 标准输入已经调用它们。判断 `scanf()` 是否真正可用，需要在 `_read_r`、`_read`、`__io_getchar` 和 `HAL_UART_Receive` 等位置设置断点，并配合串口终端向 PC11 输入字符的硬件记录【待验证】。
+
 ### 9. map 中出现 `malloc` 和 `_sbrk_r`，是否说明每次 `printf()` 都会申请堆？
 
 不说明。当前 map 可以证明浮点格式化相关库成员已经进入 ELF，例如 `_dtoa_r`、`malloc`、`_malloc_r` 和 `_sbrk_r`。这说明当前固件具备这些库路径，也说明 Flash 体积和潜在堆路径需要被纳入分析。
