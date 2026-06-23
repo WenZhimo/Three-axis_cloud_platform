@@ -302,6 +302,8 @@ ST 官方 `STM32F103xC/D/E` 数据手册说明该高密度系列覆盖 256KB 到
 
 因此，第01章可以把“本仓库当前 Debug 构建按 256KB Flash / 48KB RAM 的 STM32F103RCTx 链接边界生成”写成构建事实；但不能把它扩展成“实物板已经确认焊接 STM32F103RCT6 且容量读回正确”。后者需要第33章下载调试、芯片丝印照片、读保护/设备 ID 读取或调试器连接记录支撑，缺少证据时保持【待验证】。
 
+如果后续要把“链接边界”推进到“实物容量读回”，证据入口也要分层记录。`stm32f103xe.h` 定义 `FLASHSIZE_BASE = 0x1FFFF7E0UL`，`stm32f1xx_ll_utils.h` 又把它封装为 `FLASHSIZE_BASE_ADDRESS`，并提供 `LL_GetFlashSize()` 读取 Flash size data register，返回值单位为 Kbytes。这能说明当前库和设备头文件提供了容量读数入口，但本仓库没有看到主线代码调用 `LL_GetFlashSize()`，也没有调试器读回记录。因此本章只能把它写成“后续验证方法”，不能写成实物容量已经验证通过【待验证】。
+
 ### 本节证据边界
 
 本节只根据当前仓库说明文件、函数、宏、变量和调用关系。运行时频率、外部硬件表现、主机侧现象、传感器方向、电机响应或真实控制效果仍需调试记录、日志或仓库外实测证据；缺少证据时保持【待验证】。
@@ -330,6 +332,7 @@ ST 官方 `STM32F103xC/D/E` 数据手册说明该高密度系列覆盖 256KB 到
 - 记录 `STM32F103xE -> stm32f103xe.h` 的宏分派路径。
 - 记录启动文件对象是否进入 `Debug/objects.list`。
 - 记录 `Debug/makefile` 链接命令是否仍使用 `STM32F103RCTX_FLASH.ld`。
+- 若要验证实物 Flash 容量，记录调试器从 `FLASHSIZE_BASE` 或 `LL_GetFlashSize()` 读回的 Kbytes 值；没有读回记录时，只能证明工程链接边界，不能证明目标板实际容量。
 - 每条记录都写明来源文件、字段值、结论和证据边界。
 - 对板卡实物、供电、外部连线和器件丝印等仓库外信息，缺少实测时保持【待验证】。
 
@@ -511,6 +514,7 @@ ST 官方 `STM32F103xC/D/E` 数据手册说明该高密度系列覆盖 256KB 到
 - `Core/Startup/startup_stm32f103rctx.s`
 - `Drivers/CMSIS/Device/ST/STM32F1xx/Include/stm32f1xx.h`
 - `Drivers/CMSIS/Device/ST/STM32F1xx/Include/stm32f103xe.h`
+- `Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_ll_utils.h`
 - `Debug/objects.list`
 - `Debug/makefile`
 - `Debug/Three-axis_cloud_platformV2.map`
