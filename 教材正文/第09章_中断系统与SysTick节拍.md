@@ -197,6 +197,27 @@ priority 15 -> 0xF0
 `USB_LP_CAN1_RX0_IRQn` 作为外设 IRQ 进入 `NVIC->IP`，并通过
 `NVIC->ISER` 使能。这个区别对调试寄存器窗口很重要。
 
+### 6.1 NVIC优先级编码链路
+
+还要把“调用 HAL 设置优先级”继续拆成更小的可验证单元。`HAL_NVIC_SetPriority(IRQn, PreemptPriority, SubPriority)` 本身不直接写最终寄存器值，它先读取当前 `SCB->AIRCR[10:8]` 中的优先级分组，再调用 CMSIS 的 `NVIC_EncodePriority()` 把抢占优先级和子优先级编码成一个逻辑优先级值，最后交给 `NVIC_SetPriority()` 写入系统异常或外设 IRQ 的优先级字段。
+
+当前项目的分组来自 `HAL_Init()` 中的 `HAL_NVIC_SetPriorityGrouping(NVIC_PRIORITYGROUP_4)`。HAL 头文件说明该分组对应 4 位抢占优先级和 0 位子优先级；STM32F103 设备头文件又定义 `__NVIC_PRIO_BITS = 4U`。把这两个事实代入 `NVIC_EncodePriority()`：
+
+```text
+PriorityGroup = NVIC_PRIORITYGROUP_4 -> PRIGROUP = 3
+PreemptPriorityBits = min(7 - 3, 4) = 4
+SubPriorityBits = max(3 + 4 - 7, 0) = 0
+encoded = PreemptPriority & 0x0F
+register_field = encoded << (8 - __NVIC_PRIO_BITS)
+```
+
+因此，在本项目当前分组下，`HAL_NVIC_SetPriority(SysTick_IRQn, 0, 0)` 和
+`HAL_NVIC_SetPriority(USB_LP_CAN1_RX0_IRQn, 0, 0)` 都编码为逻辑优先级 0，写入寄存器字段时为 `0x00`；`HAL_NVIC_SetPriority(TIM8_UP_IRQn, 1, 0)` 编码为逻辑优先级 1，写入寄存器字段时为 `0x10`。这里的 `SubPriority = 0` 不是“项目暂时不用子优先级”的经验判断，而是在 `NVIC_PRIORITYGROUP_4` 下没有子优先级位可供编码。
+
+`Debug/Three-axis_cloud_platformV2.list` 也能从构建结果侧证明这条软件路径进入了当前镜像：`HAL_NVIC_SetPriority()` 内部调用 `__NVIC_GetPriorityGrouping()`，再调用 `NVIC_EncodePriority()`，随后调用 `__NVIC_SetPriority()`。这类证据能说明“优先级值如何被编码并写入哪个寄存器族”，但不能证明运行时某个 IRQ 已经 pending、active 或完成抢占；这些状态仍需 `SCB->SHP`、`NVIC->IP/ISER/ISPR/IABR` 寄存器读回、断点命中或日志证据【待验证】。
+
+这个拆分还能避免一个常见误解：同为优先级 0 的 SysTick 和 USB 低优先级中断，不等于二者有固定的先后执行顺序。它只能说明在当前分组下二者没有可见的抢占优先级差异；实际先后还取决于异常到达时间、当前正在执行的异常、全局中断屏蔽、外设 pending 状态、处理函数长度和 Cortex-M 异常仲裁过程。本章没有运行时轨迹，因此不能把“同优先级”写成“确定顺序”。
+
 ## 7. 项目中的应用
 
 本章对应项目初始化和主循环之间的时间/中断基础层。
@@ -608,6 +629,7 @@ TIM8/USB 优先级为什么写 `NVIC->IP`。
 - TIM8 和 USB 中断在项目中存在，但本章只建立 NVIC 入口和配置边界。
 - 当前仓库没有证明 TIM8 更新中断源已经启动，也没有项目级 TIM 周期回调证据。
 - SysTick 属于系统异常，优先级落在 `SCB->SHP`；TIM8/USB 属于外设 IRQ，优先级和使能分别落在 `NVIC->IP` 与 `NVIC->ISER`。
+- `HAL_NVIC_SetPriority()` 需要经过优先级分组读取、`NVIC_EncodePriority()` 编码和 `__NVIC_SetPriority()` 写寄存器，不能把 HAL 调用名直接等同于最终寄存器字节。
 - `.map/.list` 能证明 SysTick、USB、TIM8 中断入口和 HAL 分发函数进入当前镜像，`.su/.cyclo` 能证明这些函数的静态栈与圈复杂度条目。
 
 本章边界：
@@ -676,6 +698,9 @@ TIM8/USB 优先级为什么写 `NVIC->IP`。
 - `HAL_NVIC_SetPriorityGrouping()`
 - `HAL_NVIC_SetPriority()`
 - `HAL_NVIC_EnableIRQ()`
+- `NVIC_EncodePriority()`
+- `__NVIC_GetPriorityGrouping()`
+- `__NVIC_SetPriority()`
 - `SysTick_Handler()`
 - `HAL_IncTick()`
 - `HAL_GetTick()`
@@ -693,8 +718,11 @@ TIM8/USB 优先级为什么写 `NVIC->IP`。
 - `TIM8_UP_IRQn`
 - `USB_LP_CAN1_RX0_IRQn`
 - `SCB->SHP`
+- `SCB->AIRCR`
 - `NVIC->ISER`
 - `NVIC->IP`
+- `NVIC->ISPR`
+- `NVIC->IABR`
 - `SysTick->LOAD`
 - `SysTick->VAL`
 - `SysTick->CTRL`
