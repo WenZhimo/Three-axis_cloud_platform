@@ -233,6 +233,14 @@ USB_DEVICE/Target
 
 因此，本章可以写成“工程配置和 Debug 生成文件共同说明当前仓库具备 CubeIDE 管理构建入口，并已经生成可追踪的 ELF/map/list 证据”。不能写成“本机 IDE 当前索引一定正常”“目标板已经烧录成功”或“所有源码都一定进入最终执行路径”。这些结论分别需要 IDE 现场、下载日志、调试会话或第04章更细的构建产物分析支撑；缺少证据时保持【待验证】。
 
+### 6.4.1 构建产物新鲜度边界
+
+这里还要单独区分“构建链存在”和“构建产物足够新”两个结论。当前仓库能证明 `.cproject` 中存在 `Gnu Make Builder`、`MCU ARM GCC`、`STM32F103RCTx`、`USE_HAL_DRIVER`、`STM32F103xE` 和 `STM32F103RCTX_FLASH.ld` 等配置意图；也能证明 `Debug/makefile` 通过 `-include sources.mk` 与各级 `subdir.mk` 纳入源目录规则，并用 `@"objects.list"`、`-T".../STM32F103RCTX_FLASH.ld"`、`-Wl,-Map="Three-axis_cloud_platformV2.map"` 生成 ELF 与 map，再用 `arm-none-eabi-objdump -h -S $(EXECUTABLES)` 生成 list。
+
+但是，这条证据链仍然只是“仓库中存在一组可追踪的 Debug 构建快照”。如果 `.cproject`、源码、链接脚本或生成规则后来被修改，而没有重新生成或重新构建，`Debug/sources.mk`、`Debug/objects.list`、`Debug/Three-axis_cloud_platformV2.map` 和 `Debug/Three-axis_cloud_platformV2.list` 可能仍然反映旧状态。教材引用这些文件时，应把它们写成“当前提交中可见的 Debug 产物证据”，不要直接写成“由当前最新源码刚刚生成”。
+
+更稳妥的核对顺序是：先看 `.cproject` 判断配置意图，再看 `Debug/makefile`、`Debug/sources.mk`、各级 `subdir.mk` 和 `Debug/objects.list` 判断生成规则与链接输入，最后看 `.map`、`.list` 判断链接保留结果和指令对应关系。若要证明产物新鲜度，还需要补充实际构建命令、构建时间、重新构建后的 diff 或 CI/IDE 构建日志；若这些证据缺失，应把“最新构建”“已下载运行”“运行结果正确”全部保留为【待验证】。
+
 ### 6.5 单个源文件到ELF的证据链
 
 以 `Core/Src/main.c` 为例，可以把第02章的工程结构证据收束成一条更具体的构建证据链：
