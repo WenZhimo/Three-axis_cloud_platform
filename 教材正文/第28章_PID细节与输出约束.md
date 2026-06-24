@@ -902,6 +902,14 @@ Pitch/Yaw 分支没有使用 `PITCH_I_ENABLE_ERR_RAD` 或 `YAW_I_ENABLE_ERR_RAD`
 调试或重构时，如果想让 Pitch/Yaw 使用各自误差阈值，需要显式增加本轴误差判断，
 并确认这不会改变原有跨轴暂停语义。相关实物效果保持【待验证】。
 
+#### `holdIntegrators` 的同帧传播边界
+
+`holdIntegrators` 不是跨帧保持的锁存变量。`computeMotorCommands()` 每次进入时先把它写成 `false`，随后 Roll 分支根据 `roll_error_electrical` 和 `ROLL_I_ENABLE_ERR_RAD` 计算 `rollHoldIntegrators`。只有当 Roll 本帧触发暂停时，源码才把全局 `holdIntegrators` 写成 `true`。
+
+这意味着当前传播方向是“本帧 Roll 判断 -> 后续 Pitch/Yaw 入参”。Roll 自己传给 `updatePID()` 的是本地 `rollHoldIntegrators`，Pitch/Yaw 传入的才是全局 `holdIntegrators`。如果 Roll 未使能、Roll 没有进入该分支，或 Roll 误差没有超过阈值，Pitch/Yaw 默认不会因为自己的 `PITCH_I_ENABLE_ERR_RAD` / `YAW_I_ENABLE_ERR_RAD` 自动暂停积分。
+
+调试时应把 `rollHoldIntegrators`、全局 `holdIntegrators`、三轴 `iHold` 入参分开记录。`.map` 能证明 `.data.holdIntegrators` 被分配进 RAM，`.list` 能证明函数入口清零、Roll 条件置真、Pitch/Yaw 调用 `updatePID()` 前读取全局值的路径存在；但跨轴暂停对真实过冲和收敛的影响仍需同步日志验证【待验证】。
+
 ### 8.9 约束顺序代码边界
 
 从 `computeMotorCommands.c` 看，轴级输出顺序通常是：
