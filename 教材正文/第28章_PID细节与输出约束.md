@@ -862,6 +862,16 @@ iTerm 硬限幅到 [-10, 10]
 
 而不是写成完整 anti-windup 控制器。
 
+#### 输出饱和与积分更新时序边界
+
+当前实现里，积分状态更新发生在 `updatePID()` 内部：当 `iHold == false` 时，先计算 `temp_iTerm = iTerm + error * deltaT`，再把 `temp_iTerm` 限制到 `[-10, 10]` 并写回 `PIDparameters->iTerm`。P/I/D 合成输出也在同一个函数内完成，随后 `updatePID()` 直接返回 `output`。
+
+轴级输出限幅发生得更晚：Roll、Pitch、Yaw 都是在 `updatePID()` 返回之后，才把 `pidCmd[]` 限制到 `±*_CMD_LIMIT_RAD`，再继续做速率限制。因此本帧“输出是否被轴级限幅截断”不会自动回写到本帧已经更新过的 `iTerm`。
+
+这个时序决定了调试方法：若怀疑输出饱和导致积分残留，应同时记录 `iHold`、`iTerm_before`、`iTerm_after`、`pidRaw`、`pidCmd_after_amplitude_limit` 和 `pidCmd_after_rate_limit`。如果 `pidCmd[]` 已经被限幅，而 `iHold == false` 且 `iTerm_after` 仍继续朝同一方向变化，只能说明当前实现允许积分在硬边界内继续累积；不能把轴级输出限幅误判成反算 anti-windup 已经生效。
+
+`.list` 能证明当前 Debug 构建中 `iHold` 判断、`temp_iTerm` 限制、`PIDparameters->iTerm` 写回、三轴 `updatePID()` 调用和后续 `pidCmd[]` 限幅路径都存在；但它不能证明某次实测过冲是否由积分残留导致，仍需同步日志或断点记录【待验证】。
+
 ### 8.8 I_ENABLE宏定义与实际接线边界
 
 `computeMotorCommands.c` 中三轴都定义了积分使能误差阈值宏：
