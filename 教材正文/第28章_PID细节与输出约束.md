@@ -963,6 +963,14 @@ actualDelta[axis] = pidCmd_after_rate_limit[axis] - pidCmdPrev_before_update[axi
 Pitch/Yaw 当前没有同等细粒度诊断结构，调试时需要手动在限幅前、限幅后、限速后和
 `pidCmdPrev[]` 更新前分别打点；否则容易把“限速前差值很大”误判为“最终电角变化同样很大”。
 
+#### Roll诊断结构与Pitch/Yaw手动打点边界
+
+`computeMotorCommands.h` 中定义了 `rollDiag_t`，并暴露 `extern rollDiag_t rollDiag`。这个结构体记录 Roll 的目标角、当前角、机械误差、电角误差、`pidRaw`、`pidClamped`、`pidApplied`、`dPidRaw`、`stepLimit`、符号配置和 `holdI`。因此 Roll 可以通过一个结构体同时观察“输入、误差、PID原始输出、约束后输出和积分暂停”多个阶段。
+
+Pitch/Yaw 当前没有对应的 `pitchDiag_t` 或 `yawDiag_t`。源码中能直接复用的全局证据主要是 `pidCmd[]`、`outputRate[]` 和 `pidCmdPrev[]`；`pidRaw`、幅值限幅前后值、`iHold` 入参和电角合成中间量需要在对应分支临时打点或断点观察。`.map` 能证明 `.bss.rollDiag`、`.bss.outputRate`、`.bss.pidCmdPrev` 被分配到 RAM，`.list` 能证明 Roll 写入 `rollDiag` 字段而 Pitch/Yaw 只沿共享数组路径更新。
+
+所以，调试报告不能把 Roll 的 `rollDiag` 字段表直接复制到 Pitch/Yaw。若要对三轴做同等粒度对比，要么临时增加 Pitch/Yaw 诊断字段，要么在 `updatePID()` 返回后、幅值限幅后、速率限制后、`pidCmdPrev[]` 更新前分别记录断点数据；否则只能证明 Pitch/Yaw 经过了约束路径，不能证明每个中间阶段都有同等可观测记录【待验证】。
+
 ### 8.10 仿真脚本边界
 
 `tools/pid_tuning_sim.py` 中 `RC_D_FILTER = 1/(2π*20)`，与固件 `F_CUT=20Hz` 对应。脚本的 `update_pid()` 也包含：
