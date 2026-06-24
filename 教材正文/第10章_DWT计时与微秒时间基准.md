@@ -223,6 +223,21 @@ TIM6 的配置意义留到第13章继续判断。
 
 运行流程上，项目先完成 HAL、系统时钟、SysTick 和外设初始化，再启用 DWT 周期计数器。
 
+这里还要拆开一个容易被跳过的前置：`SystemCoreClock` 不是编译期永远等于 72MHz 的常量。
+`Core/Src/system_stm32f1xx.c` 中它的初始定义是 `8000000`，表示复位后默认 HSI 语义；
+`SystemClock_Config()` 内部调用 `HAL_RCC_ClockConfig()` 后，HAL 在
+`stm32f1xx_hal_rcc.c` 中用 `HAL_RCC_GetSysClockFreq()` 和 AHB 分频表更新
+`SystemCoreClock`。因此，当前 72MHz 结论依赖系统时钟配置已经执行并成功返回。
+
+这条边界会同时影响两条微秒路径：`main()` 在 `SystemClock_Config()` 之后又调用
+`HAL_SYSTICK_Config(SystemCoreClock / 1000)`，所以 `micros()` 假设的 1ms
+SysTick 重装载值依赖更新后的 `SystemCoreClock`；`DWT_Delay_us()` 的
+`SystemCoreClock / 1000000` 也依赖同一个运行时变量。`.map` 只能证明
+`SystemCoreClock` 位于 `.data`，当前地址为 `0x20000000`；`.list` 能证明
+`HAL_RCC_ClockConfig()` 中存在更新写回以及 `main()` 后续读取该变量配置 SysTick。
+它们仍不能替代运行时读取 `SystemCoreClock`、`SysTick->LOAD` 和
+`DWT->CYCCNT` 的调试证据【待验证】。
+
 随后，`micros()` 可以计算 500Hz 周期时间差和执行耗时。
 
 `DWT_Delay_us()` 可以提供采样间隔等待。
@@ -574,6 +589,7 @@ SysTick 提供连续时基，DWT 负责短时间等待。
 - `main.c` 启用 DWT 周期计数器。
 - `micros()` 使用 HAL tick 和 SysTick 当前计数位置生成微秒时间戳。
 - `DWT_Delay_us()` 使用 `DWT->CYCCNT` 和 `SystemCoreClock` 实现微秒级等待。
+- `SystemCoreClock` 初始定义为 8MHz，当前 72MHz 换算依赖 `SystemClock_Config()` 中 `HAL_RCC_ClockConfig()` 对它的运行时更新。
 - 72MHz 下 `DWT_Delay_us(1000)` 的目标等待量为 72000 个 CPU 周期。
 - 32 位 `DWT->CYCCNT` 在 72MHz 下理论回绕时间约为 59.65s。
 - `micros()` 的 32 位微秒时间戳约每 71.58min 回绕一次，短间隔应使用无符号差值理解。
