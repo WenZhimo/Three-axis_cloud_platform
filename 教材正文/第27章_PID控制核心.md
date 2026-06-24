@@ -573,6 +573,18 @@ I/D 计算的 `deltaT`”，不要只记录 PID 输出值。
 
 所以，`deltaT` 回退更像 PID 内部的“数值保险丝”，不是全系统实时性的证明。若要复盘一次异常帧，应同时记录回退前 `deltaT`、回退后局部 `deltaT`、`iHold`、`iTerm` 增量、原始 `dTerm`、滤波后 `dAverage` 和最终输出。
 
+#### 8.3.1.2 deltaT回退诊断边界
+
+`updatePID()` 的回退写法还有一个调试边界：它直接覆盖形参局部变量 `deltaT`，而不是把“本帧发生过回退”写入 `PIDdata_t` 或其它全局诊断字段。
+
+| 证据 | 能证明什么 | 不能证明什么 |
+|---|---|---|
+| `pid.c` 中 `deltaT = 0.002f` 位于异常判断分支内 | PID 内部后续积分、微分和滤波会使用回退后的局部时间步 | 调试器事后只看 `PIDdata_t` 不能知道原始 `deltaT` 是多少 |
+| `pid.h` 中 `PIDdata_t` 只有 `iTerm`、`lastDcalcValue`、`lastDterm`、`lastLastDterm` 等状态字段 | 结构体保存的是 PID 运行状态和配置，不保存本次是否触发时间步回退 | 不能从结构体字段反推是否发生过调度异常 |
+| `.list` 中可见 `deltaT = 0.002f` 后续又进入 `error * deltaT`、`dInput / deltaT` 和 D 项滤波 | 当前 Debug 快照能证明回退值参与后续计算路径 | 不能证明目标板运行时已经记录了回退事件 |
+
+因此，若要定位一次 PID 输出异常，仅观察 `iTerm`、`dTermFiltered` 或最终 `output` 还不够。必须在调用 `updatePID()` 前记录原始 `dt500Hz/safeDt`，或者在函数内增加临时断点、日志或诊断计数器，才能区分“真实 2ms 帧”和“异常帧被回退成 2ms 参与计算”【待验证】。
+
 ### 8.3.2 deltaT回退与safeDt分层
 
 `deltaT` 回退和 `safeDt` 不是同一个保护点。前者在 `pid.c` 的 `updatePID()` 内部发生，
