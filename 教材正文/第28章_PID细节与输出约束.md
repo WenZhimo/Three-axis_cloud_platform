@@ -821,6 +821,20 @@ actualRollStepLimit = max(eepromConfig.rateLimit * safeDt, AXIS_MIN_STEP_LIMIT_R
 
 `.list` 能证明当前 Debug 构建中保留了 `rollStepLimit < AXIS_MIN_STEP_LIMIT_RAD` 的比较、`outputRate[ROLL] > rollStepLimit` 的分支，以及 `rollDiag.stepLimit = eepromConfig.rateLimit * safeDt` 的写入；但 `AXIS_MIN_STEP_LIMIT_RAD` 是否改善低速段手感、是否引入额外抖动，需要真实日志或实物测试继续验证【待验证】。
 
+#### Pitch/Yaw每帧限速调试边界
+
+Pitch/Yaw 当前把 `eepromConfig.rateLimit` 直接作为 `pidCmd[axis] - pidCmdPrev[axis]` 的每帧差值阈值。调试记录应把“源码阈值”和“等效物理速率”分开写：
+
+```text
+limit_per_frame = eepromConfig.rateLimit
+actual_delta = pidCmd_after_rate_limit[axis] - pidCmdPrev_before_update[axis]
+equivalent_rate = actual_delta / dt
+```
+
+如果只记录 `outputRate[PITCH/YAW]`，只能说明限速前差值是否超过阈值；如果只记录 `pidCmd[PITCH/YAW]`，又看不出它是否已经被幅值限幅或速率限制改写。更稳妥的调试表至少包含：`pidRaw`、幅值限幅后 `pidCmd`、限速前 `outputRate`、限速后 `pidCmd`、更新前 `pidCmdPrev`、本帧 `dt` 和 `actual_delta / dt`。
+
+`.list` 能证明当前 Pitch/Yaw 分支保留了 `outputRate[axis] > eepromConfig.rateLimit` 和 `pidCmd[axis] = pidCmdPrev[axis] ± eepromConfig.rateLimit` 的路径；但它不能证明该阈值的调参效果、机械等效速率或安全边界。缺少同步日志时，不能把“触发了每帧限速”直接写成“已经实现 45 deg/s 的物理限速”。
+
 ### 8.7 积分限幅与windupGuard边界
 
 `updatePID()` 中积分更新逻辑是：
