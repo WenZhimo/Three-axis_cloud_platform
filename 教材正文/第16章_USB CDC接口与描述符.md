@@ -482,6 +482,14 @@ USB CDC 最容易被误读成“能枚举就等于能通信，能通信就等于
 
 因此，本章对 USB CDC 的结论必须使用四个不同层级的措辞：描述符可枚举、控制请求可进入、OUT 数据可回调、业务协议已生效。当前仓库只能证明前三者中的一部分静态路径；最后一层仍缺少解析逻辑、调用点、主机日志和运行记录【待验证】。
 
+#### 函数表证据断点
+
+`USBD_Interface_fops_FS` 是一个很容易被过度解释的证据点。它在 `usbd_cdc_if.c` 中保存 `CDC_Init_FS`、`CDC_DeInit_FS`、`CDC_Control_FS` 和 `CDC_Receive_FS` 四个函数入口；`USBD_CDC_RegisterInterface()` 再把这个函数表地址写入 `pdev->pUserData`。这能证明应用层 CDC 回调已经注册到 USB Device 栈，但不能证明每个回调都已经被主机触发。
+
+更细地说，`.list` 中能看到 `USBD_CDC_Setup()` 和 `USBD_CDC_EP0_RxReady()` 通过 `pUserData->Control()` 回到 `CDC_Control_FS()`，也能看到 `USBD_CDC_DataOut()` 通过 `pUserData->Receive()` 回到 `CDC_Receive_FS()`。这些属于“类驱动到应用回调的可执行边”证据。它们仍然不能替代三类更高层证据：主机是否真的发起对应请求、回调内部是否解析业务数据、解析结果是否写入 PID/目标角/配置对象。
+
+所以，调试 USB CDC 时应把函数表分成三层记录：函数表对象是否进入 `.map`，类驱动是否在 `.list` 中通过 `pUserData` 调用它，应用回调是否真正处理了项目业务。当前仓库只支持前两层；第三层仍保持【待验证】。
+
 `Debug/USB_DEVICE/App/usbd_cdc_if.su` 和对应 `.cyclo` 文件还能给出应用侧 CDC 回调的静态资源记录：
 
 - `CDC_Init_FS` 的静态栈使用量为 8 字节，圈复杂度为 1。
