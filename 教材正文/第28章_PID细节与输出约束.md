@@ -1052,6 +1052,20 @@ clamp -> -300
 
 但脚本使用的是简化二阶对象模型，不等于真实电机、真实 IMU 和真实 PWM 输出。它适合做趋势理解和调参预演，不能替代仓库外实测验证。
 
+#### 仿真对象模型与硬件闭环边界
+
+`tools/pid_tuning_sim.py` 的对象模型只把单轴近似为 `theta/theta_dot` 状态和三个可调对象参数：`wn`、`zeta`、`plant_gain`。脚本中的注释已经把它写成：
+
+```text
+theta_ddot + 2*zeta*wn*theta_dot + wn^2*theta = plant_gain*u + disturbance
+```
+
+换成控制系统语言看，脚本假定被控对象是一个受阻尼项和弹性回复项约束的二阶角度系统，PID 输出 `u` 经过 `plant_gain` 直接变成角加速度输入。这个模型适合解释 P/I/D 参数、D 项滤波、幅值限幅和速率限制对曲线趋势的影响：例如 `wn` 越高，模型自然响应越快；`zeta` 越低，曲线越容易出现振荡；`plant_gain` 越大，同样的 PID 输出会产生更大的角加速度。
+
+但这个模型没有覆盖当前固件真正下发到电机前的执行链。源码路径是 `computeMotorCommands()` 先合成各轴定子电角，再调用 `PWM_Motor_SetAngle()`；后者查正弦表计算三相 `ccr_val[]`，并按轴写入 TIM2/TIM3/TIM4 的 `CCR` 寄存器。也就是说，真实链路至少还包含机械角到电角的映射、三相正弦占空比生成、定时器比较寄存器更新、电机驱动器、电机电流、负载惯量、摩擦、安装刚度、IMU 采样噪声与反馈延迟。脚本没有模拟这些环节。
+
+所以，本章可以把仿真脚本用于“趋势级预演”：观察参数变化是否可能导致更大的超调、慢收敛、D 项尖峰或限速压制；不能把仿真曲线写成“真实电机闭环已经稳定”。`Debug/Three-axis_cloud_platformV2.map` 能证明 `PWM_Motor_SetAngle` 进入最终镜像，`Debug/Three-axis_cloud_platformV2.list` 能证明三轴分支存在 `updatePID()`、限幅、限速和 `PWM_Motor_SetAngle()` 调用路径；但这些构建产物仍不能证明真实 PWM 波形、相电流、温升、机械响应和 IMU 反馈闭环已经正确。上述硬件闭环结论必须保留为【待验证】。
+
 ### 8.11 预留斜坡与门控变量边界
 
 `computeMotorCommands.c` 中存在一组看起来与目标斜坡、Yaw 平滑和 Roll 收敛门控相关的变量：
