@@ -560,6 +560,19 @@ fallback 0.002s   -> 回退到 500Hz 标称周期
 因此调试报告中应同时记录“进入 `updatePID()` 的原始 `deltaT`”和“回退后实际用于
 I/D 计算的 `deltaT`”，不要只记录 PID 输出值。
 
+#### 8.3.1.1 deltaT回退对P/I/D三项的影响
+
+`deltaT` 回退发生在 `updatePID()` 开头，所以后续 P/I/D 三项看到的是回退后的局部时间步。它对三项的影响并不相同：
+
+| 项 | 源码位置 | `deltaT` 的直接影响 | 调试边界 |
+|---|---|---|---|
+| P 项 | `error = command - state`，输出中 `P * error` | P 项公式不直接乘除 `deltaT` | 若异常 `deltaT` 来自主循环阻塞，P 项仍可能因为姿态或目标已经变化而间接受影响 |
+| I 项 | `temp_iTerm = iTerm + error * deltaT` | 回退后的 `deltaT` 决定本帧积分面积增量 | `iHold == true` 时本帧不更新 `iTerm`；若该轴 `I=0.0f`，`iTerm` 变化也不会形成积分输出 |
+| D 项 | `dTerm = dInput / deltaT`，随后 `deltaT / (rc + deltaT)` 进入滤波 | 回退后的 `deltaT` 同时影响微分斜率和 D 项低通滤波系数 | D 项是否抖动还取决于姿态噪声、`lastDcalcValue`、`lastDterm` 和 `dErrorCalc` |
+| 输出组合 | `P * error + I * iTerm + D * dAverage` | 输出使用已经更新或滤波后的状态量 | 不能只看输出有限值就断言真实控制周期稳定 |
+
+所以，`deltaT` 回退更像 PID 内部的“数值保险丝”，不是全系统实时性的证明。若要复盘一次异常帧，应同时记录回退前 `deltaT`、回退后局部 `deltaT`、`iHold`、`iTerm` 增量、原始 `dTerm`、滤波后 `dAverage` 和最终输出。
+
 ### 8.3.2 deltaT回退与safeDt分层
 
 `deltaT` 回退和 `safeDt` 不是同一个保护点。前者在 `pid.c` 的 `updatePID()` 内部发生，
