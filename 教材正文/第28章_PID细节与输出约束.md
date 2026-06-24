@@ -884,6 +884,16 @@ updatePID()
 调试变化率限制时，应比较 `pidCmdPrev[]` 与限幅后的 `pidCmd[]`，不要直接拿 `rollPidRaw`
 和 `pidCmdPrev[]` 判断速率限制是否生效。
 
+#### `updatePID()` 返回值与轴级约束边界
+
+`updatePID()` 内部只完成 PID 合成和有限值回退：`pid.c` 中 `output` 由 P/I/D 项合成，若 `isnan(output) || isinf(output)` 才写回 `0.0f`，随后直接 `return output`。
+因此，`updatePID()` 返回值不能理解成“已经可以安全下发给电机的最终命令”，它只说明 PID 数值本身没有以 NaN/Inf 形式继续外溢。
+
+真正的轴级保护发生在调用者 `computeMotorCommands()` 内部：Roll 先把 `rollPidRaw` 经过 `clampf(..., ±ROLL_CMD_LIMIT_RAD)`，再按 `rollStepLimit = eepromConfig.rateLimit * safeDt` 做帧间步长限制；Pitch/Yaw 则在 `updatePID()` 后分别检查 NaN/Inf、限制到 `±PITCH_CMD_LIMIT_RAD` 或 `±YAW_CMD_LIMIT_RAD`，再用 `eepromConfig.rateLimit` 限制 `outputRate[axis]`。
+
+这个边界对调参很关键：如果只在 `updatePID()` 入口或返回处打点，只能看到 PID 原始补偿量；若要判断“是否被幅值限幅截断”或“是否被速率限制压住”，必须同时记录限幅后的 `pidCmd[axis]`、限速前的 `outputRate[axis]`、限速后的 `pidCmd[axis]` 与更新前的 `pidCmdPrev[axis]`。
+`.map` 能证明 `computeMotorCommands`、`updatePID`、`clampf` 进入最终镜像，`.list` 能证明三轴路径中 `updatePID()` 调用、NaN/Inf 回退、幅值限幅和 `outputRate[]` 比较分支存在；但这些证据不能证明某一次实测中电机电角、PWM波形或机械角响应已经正确，仍需在线日志、断点或示波器观测【待验证】。
+
 #### 输出变量生命周期证据边界
 
 第28章最容易混淆的地方，是同一个轴在一帧内会出现多个“看起来都像输出”的变量。
