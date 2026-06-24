@@ -1045,6 +1045,11 @@ clamp -> -300
 `rateLimit * safeDt`，Pitch/Yaw 直接使用 `rateLimit`。所以脚本只能说明限速趋势，
 不能证明三轴固件限速强度完全相同。
 
+第四，脚本主循环调用 `update_pid(target_now, state.theta, dt, False, pid)`，等价于每一帧都允许积分更新。
+固件路径中 Roll 会把 `rollHoldIntegrators` 传给 `updatePID()`，Pitch/Yaw 会接收全局
+`holdIntegrators`；启动或误差过大时还可能清零或暂停积分状态。因此，脚本可以观察
+`i_term` 硬限幅和 I 参数趋势，但不能证明固件中的积分暂停、跨轴门控和启动清零时序已经被等价模拟。
+
 但脚本使用的是简化二阶对象模型，不等于真实电机、真实 IMU 和真实 PWM 输出。它适合做趋势理解和调参预演，不能替代仓库外实测验证。
 
 ### 8.11 预留斜坡与门控变量边界
