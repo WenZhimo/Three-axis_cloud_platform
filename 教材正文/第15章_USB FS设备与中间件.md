@@ -391,6 +391,20 @@ CDC 接收路径还要区分“函数表注册”和“直接分支调用”：`
 
 因此，本章的工程结论要分层写：USB Device/CDC 类初始化链路已经进入最终镜像；CDC 接收回调函数表和重新投递接收包的函数体具有构建证据；CDC 主动发送接口在当前构建中没有最终地址，发送业务应留到第16章继续核对。
 
+### 10.1 配置、描述符与枚举证据断点
+
+USB 设备章节还要避免把“配置为 CDC”“描述符对象进入固件”和“主机已经枚举成功”混成同一个结论。当前项目可以按下面五层拆开：
+
+| 证据层 | 当前项目证据 | 能证明什么 | 不能证明什么 |
+| --- | --- | --- | --- |
+| CubeMX 配置 | `.ioc` 中 `USB_DEVICE.VirtualModeFS=Cdc_FS`、PA11/PA12 为 `USB_DM/USB_DP`、`RCC.USBFreq_Value=48000000`、`NVIC.USB_LP_CAN1_RX0_IRQn=true` | 工程配置意图是 USB FS CDC 设备，并配置了时钟、引脚和中断入口。 | 不能证明生成代码已进入当前 ELF，也不能证明主机已识别设备。 |
+| 设备栈初始化 | `usb_device.c` 中 `USBD_Init(&hUsbDeviceFS, &FS_Desc, DEVICE_FS)`、`USBD_RegisterClass(&hUsbDeviceFS, &USBD_CDC)`、`USBD_CDC_RegisterInterface(...)`、`USBD_Start(...)` | 设备描述符入口、CDC 类对象和接口函数表被初始化链引用。 | 不能证明第16章要分析的每个描述符字段都已经被主机读取。 |
+| 描述符构建产物 | `.map` 中 `FS_Desc`、`USBD_FS_DeviceDesc`、`USBD_LangIDDesc`、`USBD_StringSerial` 有最终地址，`.list` 中能看到 `USBD_FS_DeviceDescriptor()` 返回 `USBD_FS_DeviceDesc`。 | 描述符入口和关键描述符数据进入当前 Debug ELF。 | 不能证明 VID/PID、字符串或 CDC 配置描述符在主机侧被接受。 |
+| 枚举状态机 | `usbd_core.c` 与 `.list` 中存在 `USBD_STATE_DEFAULT`、`USBD_STATE_ADDRESSED`、`USBD_STATE_CONFIGURED` 的状态判断和设置路径。 | 中间件具备从默认态推进到配置态的代码路径。 | 不能证明目标板实际已经进入 `USBD_STATE_CONFIGURED`。 |
+| 主机侧事实 | 需要设备管理器、系统日志、USB 抓包、断点命中或串口/调试记录。 | 才能证明主机读到描述符、分配地址、选择配置并创建 CDC 设备。 | 仓库内源码和构建产物不能替代这一层。 |
+
+因此，第15章只能说 USB FS CDC 设备的工程配置、初始化链路和描述符入口已经具备仓库内证据；描述符字段逐项解释放到第16章，主机枚举成功则必须等到仓库外运行记录或调试记录支持，缺少证据时继续标记为【待验证】。
+
 ### 本节证据边界
 
 本节只根据当前仓库说明文件、函数、宏、变量和调用关系。运行时频率、外部硬件表现、主机侧现象、传感器方向、电机响应或真实控制效果仍需调试记录、日志或仓库外实测证据；缺少证据时保持【待验证】。
