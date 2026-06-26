@@ -1083,6 +1083,23 @@ clamp -> -300
 所以凡是用脚本讨论边界附近的 D 项，都必须回到固件 `updatePID()` 的
 `standardRadianFormat(error - lastDcalcValue)` 顺序复核。
 
+#### 角度差分二次包裹复核清单
+
+脚本若要和固件逐帧比较 D 项，不能只比较 `error` 是否同为 `wrap(command - state)`。
+在当前 `D_ERROR` 路径中，等价性还需要同时满足下面几项：
+
+| 复核项 | 固件路径 | 脚本当前路径 | 不一致后果 |
+|---|---|---|---|
+| 误差包裹 | `error = standardRadianFormat(command - state)` | `error = wrap_pi(command - state)` | 这一步思想一致，但还不足以证明 D 项一致 |
+| 历史值来源 | `lastDcalcValue == 0.0f` 且 `D_ERROR` 时写入当前 `error` | `last_d_calc == 0.0` 时写入 `state` | 第一帧差分可能完全不同 |
+| 差分包裹 | `dInput = error - lastDcalcValue` 后再 `standardRadianFormat(dInput)` | `d_term = (error - last_d_calc) / dt`，未再次包裹差分 | 跨 `±pi` 时可能把小角度连续变化误判成大尖峰 |
+| 限幅位置 | 差分包裹后除以 `deltaT`，再限到 `[-300, 300]` | 未二次包裹就除以 `dt`，再限幅 | 脚本可能提前进入 D 项限幅，掩盖包裹顺序差异 |
+
+因此，仿真曲线只能作为“参数趋势”和“风险提示”。如果要做逐帧对齐报告，
+至少要把脚本改到同样的历史初始化规则和二次差分包裹顺序，或在报告中明确说明这些差异【待验证】。
+`.list` 中能看到 `updatePID()` 先调用 `standardRadianFormat(error)`，再在 `D_ERROR` 分支中对
+`dInput` 再次调用 `standardRadianFormat()`，但它不能证明 Python 脚本与固件已经数值等价。
+
 第三，脚本用统一 `rate_limit` 约束三轴每步输出变化；固件 Roll 使用
 `rateLimit * safeDt`，Pitch/Yaw 直接使用 `rateLimit`。所以脚本只能说明限速趋势，
 不能证明三轴固件限速强度完全相同。
