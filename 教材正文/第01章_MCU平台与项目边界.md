@@ -289,7 +289,30 @@ FLASH = 0x08000000, 256K
 
 这里还要单独拆开一个文件名边界。`Core/Startup/startup_stm32f103rctx.s` 是源码路径证据，说明仓库中存在 RCTx 对应启动文件；`Debug/objects.list` 中的 `./Core/Startup/startup_stm32f103rctx.o` 才是对象进入当前 Debug 链接输入的证据；`Debug/makefile` 中的 `-T STM32F103RCTX_FLASH.ld` 则证明本次链接命令使用了对应链接脚本。如果将来出现拼写相近但不完全一致的启动文件名，或者 `objects.list` 中没有对应 `.o`，教材应把它视为证据链断点，而不是把名称差异当成无关变体。
 
-### 8.5.1 MCU容量与链接边界证据
+### 8.5.1 `.list`中的启动链接证据边界
+
+`Debug/Three-axis_cloud_platformV2.list` 还能把“启动文件引用链接脚本符号”推进到反汇编和源码混排层。当前构建中可以看到启动代码围绕 `.data` 搬运、`.bss` 清零和栈边界检查展开；同一个 `.list` 中还出现：
+
+```text
+extern uint8_t _estack;
+extern uint32_t _Min_Stack_Size;
+const uint32_t stack_limit = (uint32_t)&_estack - (uint32_t)&_Min_Stack_Size;
+```
+
+这些符号来自 `STM32F103RCTX_FLASH.ld`，而不是普通 C 变量。它们把第03章要讲的启动流程提前给出一个平台层证据：当前 Debug ELF 的启动代码确实依赖链接脚本提供的 RAM 顶、栈保留大小、初始化数据边界和 `.bss` 边界。
+
+这层证据的教学价值在于区分四个结论强度：
+
+| 证据 | 可以证明 | 不能证明 |
+|---|---|---|
+| `startup_stm32f103rctx.s` | 仓库中存在 RCTx 启动文件源码 | 该启动文件已经进入本次链接 |
+| `Debug/objects.list` | RCTx 启动对象进入 Debug 链接输入 | 启动代码中的每个符号都来自当前链接脚本 |
+| `Debug/makefile` 的 `-T STM32F103RCTX_FLASH.ld` | 本次链接命令使用 RCTx 链接脚本 | 目标板已经运行该 ELF |
+| `.list` 中 `_estack`、`_Min_Stack_Size`、`.data/.bss` 启动路径 | 启动代码与链接脚本符号在当前构建产物中形成闭环 | 实物 RAM 边界、下载镜像和运行栈水位已经现场验证 |
+
+因此，第01章可以把 `.list` 作为“当前构建确实把平台、启动和链接脚本连接起来”的强证据；但不能把它写成“当前板卡已经按该栈边界安全运行”。后者需要下载记录、调试器寄存器/内存窗口、栈水位检查或运行日志支撑，缺少时保持【待验证】。
+
+### 8.5.2 MCU容量与链接边界证据
 
 平台容量也要分清“官方器件能力”“工程选择”和“当前构建结果”三层。
 
