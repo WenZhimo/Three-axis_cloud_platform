@@ -872,6 +872,19 @@ iTerm 硬限幅到 [-10, 10]
 
 `.list` 能证明当前 Debug 构建中 `iHold` 判断、`temp_iTerm` 限制、`PIDparameters->iTerm` 写回、三轴 `updatePID()` 调用和后续 `pidCmd[]` 限幅路径都存在；但它不能证明某次实测过冲是否由积分残留导致，仍需同步日志或断点记录【待验证】。
 
+#### `iHold` 与 `I` 参数的二维边界
+
+调试积分项时要把“积分状态是否更新”和“积分输出是否参与控制”拆开。前者由 `iHold` 决定，后者由 `PIDparameters->I` 决定：
+
+| `iHold` | `I` 参数 | `iTerm` 状态 | `I * iTerm` 输出贡献 | 当前项目含义 |
+|---|---|---|---|---|
+| `false` | 非零 | 会按 `error * deltaT` 更新并限制到 `[-10, 10]` | 会参与 `updatePID()` 输出 | Yaw 当前源码覆盖为 `I = 0.01f`，属于这种可生效积分路径 |
+| `false` | `0.0f` | 仍可能更新并跨帧保存 | 当前输出贡献为 0 | Roll/Pitch 当前源码覆盖为 `I = 0.0f`，不能因为输出无 I 项就忽略 `iTerm` 历史 |
+| `true` | 非零 | 本帧不更新，保留旧值 | 旧 `iTerm` 仍可能通过 `I * iTerm` 贡献输出 | 积分暂停不是积分清零；若旧积分未清掉，仍需观察输出影响 |
+| `true` | `0.0f` | 本帧不更新，保留旧值 | 当前输出贡献为 0 | 看起来最安静，但如果后续把 I 改成非零，旧状态可能重新变得重要 |
+
+因此，断点或日志不能只看 `iTerm` 是否变化，也不能只看 `I` 是否为 0。更稳妥的记录项是 `iHold`、`I`、`iTerm_before`、`iTerm_after` 和 `I * iTerm_after`。`zeroPIDintegralError()` 才是把三轴积分状态清零的路径；`iHold == true` 只是不让本帧继续累加。
+
 ### 8.8 I_ENABLE宏定义与实际接线边界
 
 `computeMotorCommands.c` 中三轴都定义了积分使能误差阈值宏：
