@@ -1104,6 +1104,31 @@ clamp -> -300
 `rateLimit * safeDt`，Pitch/Yaw 直接使用 `rateLimit`。所以脚本只能说明限速趋势，
 不能证明三轴固件限速强度完全相同。
 
+#### 脚本`rate_limit`与固件三轴限速边界
+
+`tools/pid_tuning_sim.py` 在三轴循环中统一执行：
+
+```text
+du = u - state.cmd_prev
+if du > rate_limit:
+    u = state.cmd_prev + rate_limit
+elif du < -rate_limit:
+    u = state.cmd_prev - rate_limit
+```
+
+这段逻辑把 `rate_limit` 当作每个仿真步长内的统一最大变化量。固件当前不是这种完全统一的表达：
+
+| 轴 | 固件限速表达式 | 与脚本统一 `rate_limit` 的差异 | 教材判读 |
+|---|---|---|---|
+| Roll | `rollStepLimit = eepromConfig.rateLimit * safeDt`，低于 `AXIS_MIN_STEP_LIMIT_RAD` 时再抬升 | 先把“每秒速率”换成“每帧步长”，且还有最小步长下限 | 脚本若直接用 `rate_limit`，会高估或低估 Roll 每帧可变化量，取决于 `dt` 和最小步长 |
+| Pitch | `pidCmd[PITCH] - pidCmdPrev[PITCH]` 直接限制在 `±eepromConfig.rateLimit` | 没有乘以 `dt`，更像每帧最大差值 | 脚本统一步长与 Pitch 源码形态接近，但仍不能证明物理单位正确【待验证】 |
+| Yaw | `pidCmd[YAW] - pidCmdPrev[YAW]` 直接限制在 `±eepromConfig.rateLimit` | 没有乘以 `dt`，更像每帧最大差值 | 脚本统一步长与 Yaw 源码形态接近，但仍不能证明真实电角响应已稳定【待验证】 |
+
+因此，使用脚本比较“限速压制程度”时，至少要在报告中写清楚三件事：
+脚本 `dt`、脚本 `rate_limit` 的单位假设、以及目标轴在固件中到底使用
+`rateLimit * safeDt` 还是直接使用 `rateLimit`。`.list` 能证明当前 Debug 构建保留了
+Roll、Pitch、Yaw 三条不同限速表达式，但不能证明这些表达式在硬件上已经达到预期手感或安全边界。
+
 第四，脚本主循环调用 `update_pid(target_now, state.theta, dt, False, pid)`，等价于每一帧都允许积分更新。
 固件路径中 Roll 会把 `rollHoldIntegrators` 传给 `updatePID()`，Pitch/Yaw 会接收全局
 `holdIntegrators`；启动或误差过大时还可能清零或暂停积分状态。因此，脚本可以观察
