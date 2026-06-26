@@ -333,6 +333,20 @@ D 项。若希望 D 项只对测量状态变化敏感，常见替代做法是对
 当前项目虽然在 `updatePID()` 中有 `D_STATE` 分支，但默认配置不是这条路径。
 因此本章后续所有关于目标突变的分析，都以当前 `D_ERROR` 默认配置为前提。
 
+#### 5.1.1 D项来源选择的证据边界
+
+`D_ERROR` 和 `D_STATE` 不能只按名字理解，还要按证据层级判断当前是否真正进入运行主线：
+
+| 证据层 | 当前项目证据 | 能证明什么 | 不能证明什么 |
+|---|---|---|---|
+| 枚举定义 | `pid.h` 定义 `D_ERROR = 1`、`D_STATE = 0` | PID 模块支持两种 D 项来源选择 | 当前三轴一定使用哪一种 |
+| 默认配置 | `config.c` 在 `init_eepromConfig(true)` 中把 ROLL/PITCH/YAW 的 `dErrorCalc` 都设为 `D_ERROR` | 默认配置分支选择对误差求微分 | 不能证明运行中没有后续覆盖 |
+| 调用实参 | `computeMotorCommands.c` 三轴调用 `updatePID(..., &eepromConfig.PID[axis])` | D 项来源由对应轴的 `PIDdata_t` 字段决定 | 不能只看函数名判断 D 项来源 |
+| 构建产物 | `.list` 中能看到 `updatePID()` 内部同时保留 `D_ERROR` / `D_STATE` 分支，并看到三轴 `updatePID()` 调用点 | 两个分支和三轴调用都进入当前 Debug 构建 | 不能证明某次运行实际走过 `D_STATE` |
+| 运行观测 | 断点或日志记录 `PIDparameters->dErrorCalc`、`error`、`state`、`lastDcalcValue`、`dTerm`【待验证】 | 能确认某一帧真实 D 项来源和数值 | 当前仓库静态文件不能直接证明 |
+
+因此，教材可以写“当前默认配置使用 `D_ERROR`，`D_STATE` 是源码存在但未见默认启用的替代路径”。如果未来为了降低目标阶跃带来的 derivative kick 而切换到 `D_STATE`，需要重新记录配置写入、运行时字段值、跨 `±π` 情况和实测响应【待验证】。
+
 ### 5.2 D项先限幅再滤波
 
 源码先对原始 `dTerm` 做异常和范围处理：
