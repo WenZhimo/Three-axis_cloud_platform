@@ -697,6 +697,21 @@ if lastDcalcValue == 0:
 因此调试初始若看到 D 项短暂偏小或重新建立历史，不应立刻解释为滤波失效。
 应同时查看 `lastDcalcValue`、`lastDterm` 和 `lastLastDterm` 的清零时刻。
 
+#### `lastDcalcValue`首帧判读表
+
+`lastDcalcValue == 0.0f` 同时可能表示“刚被清零”“上一帧真实值为 0”或“历史尚未建立”。
+因此第一帧 D 项不能只按“当前误差减上一帧误差”口算：
+
+| 场景 | 进入 `updatePID()` 前 | 源码动作 | 本帧原始D项结论 | 调试判读 |
+|---|---|---|---|---|
+| 启动或门控后刚清零 | `lastDcalcValue = 0.0f`，当前 `error/state` 非零 | 先把 `lastDcalcValue` 写成当前 `error` 或 `state`，再计算差分 | `D_ERROR` 下本帧 `dInput` 可能被压成 0；`D_STATE` 也可能先把当前状态建立为历史 | 这是建立历史值，不是连续运行下的真实微分响应 |
+| 连续运行且上一帧真实值非零 | `lastDcalcValue` 保存上一帧 `error/state` | 直接计算当前值与上一帧值差分 | D项反映连续帧变化 | 可按正常微分响应分析 |
+| 连续运行但上一帧真实值恰为0 | `lastDcalcValue = 0.0f`，但它不是清零事件 | 仍会触发哨兵初始化分支 | 第一帧非零变化可能被当成重新建立历史 | 仅凭字段值无法区分真实 0 和未初始化，需要连续日志或额外 valid 标志【待验证】 |
+
+所以，分析 D 项首帧时至少要记录：清零函数是否刚执行、上一帧 `lastDcalcValue` 来源、当前 `dErrorCalc`、
+当前 `error/state`、本帧 `dTerm` 和下一帧 `lastDcalcValue`。
+`.list` 能证明哨兵判断与写回路径进入当前 Debug 构建，但不能证明某次实测中这个 0 的来源。
+
 ### 8.4 目标角斜坡代码
 
 `moveTowardsAnglef()` 的核心思想是：
