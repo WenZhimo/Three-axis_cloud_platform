@@ -399,6 +399,22 @@ APB2 = HCLK / 1 = 72 MHz
 
 `Debug/Three-axis_cloud_platformV2.map` 只能进一步证明 `PWM_Motor_Init`、`PWM_Motor_SetAngle` 和相关代码路径进入了最终链接产物；它不单独给出 `cpsid i` / `cpsie i` 这种内联指令的原地上下文，也不能替代运行时读回、断点观察或中断屏蔽状态截图。
 
+### 9.2 CMSIS内联函数的证据读法
+
+`__disable_irq()` 和 `__enable_irq()` 不是普通外部函数。`Drivers/CMSIS/Include/cmsis_gcc.h` 中的 `__STATIC_FORCEINLINE` 展开为 `__attribute__((always_inline)) static inline`，因此这类编译器层辅助函数通常会在调用点直接展开成指令，而不是在 `.map` 中留下一个可单独查找的函数符号。
+
+所以审查 CMSIS 内联函数时，不能只按“先在 `.map` 找函数名”的顺序判断。更稳妥的证据链应按层次阅读：
+
+| 证据层 | 当前项目证据 | 能证明什么 | 不能证明什么 |
+|---|---|---|---|
+| 头文件定义 | `cmsis_gcc.h` 把 `__disable_irq()` 写成 `cpsid i`，把 `__enable_irq()` 写成 `cpsie i` | CMSIS/GCC 层的语义来源 | 项目一定调用了这些内联函数 |
+| 调用点源码 | `drv_pwmMotors.c` 在 CNT 清零和 CCR 更新前后调用它们 | 项目意图建立短临界区 | 编译后一定保留在这些位置 |
+| `.list` 指令上下文 | `PWM_Motor_Init()` / `PWM_Motor_SetAngle()` 附近可见 `cpsid i`、寄存器写入和 `cpsie i` | 当前 Debug 构建把内联函数展开到调用点 | 运行时 `PRIMASK` 原值和恢复结果 |
+| `.map` 符号表 | `.text.PWM_Motor_Init`、`.text.PWM_Motor_SetAngle` 有最终地址 | 调用者函数进入最终镜像 | 内联指令的局部上下文 |
+| 运行观测 | 调试器读取进入前后 `PRIMASK`【待验证】 | 能确认一次运行中的中断屏蔽状态变化 | 不能由当前仓库静态文件直接证明 |
+
+这条规则也适用于其它 CMSIS `static inline` 或 `always_inline` 辅助函数：`.map` 适合证明“承载它的调用者函数是否进入镜像”，`.list` 才适合证明“内联后的机器指令是否出现在具体调用点”。如果只按函数名搜索 `.map`，很容易把“已内联”误判为“未使用”。
+
 ### 10. `usbd_conf.c` 中的系统控制访问
 
 `USB_DEVICE/Target/usbd_conf.c` 的挂起回调中，在特定条件下写 `SCB->SCR`。这属于系统控制块寄存器访问。
