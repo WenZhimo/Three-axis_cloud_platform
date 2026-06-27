@@ -651,7 +651,7 @@ TIM8/USB 优先级为什么写 `NVIC->IP`。
 - 当前仓库没有证明 TIM8 更新中断源已经启动，也没有项目级 TIM 周期回调证据。
 - SysTick 属于系统异常，优先级落在 `SCB->SHP`；TIM8/USB 属于外设 IRQ，优先级和使能分别落在 `NVIC->IP` 与 `NVIC->ISER`。
 - `HAL_NVIC_SetPriority()` 需要经过优先级分组读取、`NVIC_EncodePriority()` 编码和 `__NVIC_SetPriority()` 写寄存器，不能把 HAL 调用名直接等同于最终寄存器字节。
-- `.map/.list` 能证明 SysTick、USB、TIM8 中断入口和 HAL 分发函数进入当前镜像，`.su/.cyclo` 能证明这些函数的静态栈与圈复杂度条目。
+- `.map/.list/.su/.cyclo` 的构建产物结论统一回到第8.10节到第8.10.1节判断：它们能证明 SysTick、USB、TIM8 中断入口、HAL 分发函数、静态栈和圈复杂度条目进入当前 Debug 构建，但不能替代中断真实触发频率、pending/active 状态、`frame_500Hz` 漏消费风险或 USB/TIM8 业务效果的运行时证据。
 
 本章边界：
 
