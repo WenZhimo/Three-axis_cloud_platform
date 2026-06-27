@@ -431,9 +431,19 @@ encoding/<project>=UTF-8
 
 ## 9. 调试方法
 
-本章阶段的调试目标是确认工程能被 IDE 正确识别和索引，而不是调三轴云台控制行为。
+本节按“现象 -> 可能原因 -> 定位方法 -> 验证步骤 -> 解决方案 -> 经验总结”组织。第02章调试的目标是确认工程能被 IDE 正确识别、索引和构建，而不是判断三轴云台控制行为。
 
-可观察对象：
+### 9.1 现象与可能原因
+
+- IDE 打开后项目不是 MCU 工程：优先检查 `.project` 的 natures。
+- 头文件无法跳转或报未找到：优先检查 `.cproject` 的 Include Path 和 `language.settings.xml`。
+- HAL 条件编译不生效：优先检查 `USE_HAL_DRIVER`。
+- 芯片头文件分支不正确：优先检查 `STM32F103xE`。
+- Debug 和 Release 行为不一致：优先比较两类配置中的 MCU、宏、Include Path 和链接脚本。
+- IDE 可以跳转但构建缺文件：区分索引器路径和实际 `Debug/sources.mk`、`objects.list`。
+- `.cproject` 与 Debug 目录不一致：记录生成文件时间和当前执行的构建命令，避免用旧产物解释新配置。
+
+### 9.2 定位方法：可观察对象
 
 - `.project` 中项目名是否为 `Three-axis_cloud_platformV2`。
 - `.project` 中是否存在 STM32CubeIDE MCU 工程性质和 CDT 管理构建性质。
@@ -446,17 +456,7 @@ encoding/<project>=UTF-8
 - `Debug/objects.list` 是否包含当前需要链接的对象文件。
 - `.settings/org.eclipse.core.resources.prefs` 中项目编码是否为 `UTF-8`。
 
-常见异常定位：
-
-- IDE 打开后项目不是 MCU 工程：优先检查 `.project` 的 natures。
-- 头文件无法跳转或报未找到：优先检查 `.cproject` 的 Include Path 和 `language.settings.xml`。
-- HAL 条件编译不生效：优先检查 `USE_HAL_DRIVER`。
-- 芯片头文件分支不正确：优先检查 `STM32F103xE`。
-- Debug 和 Release 行为不一致：优先比较两类配置中的 MCU、宏、Include Path 和链接脚本。
-- IDE 可以跳转但构建缺文件：区分索引器路径和实际 `Debug/sources.mk`、`objects.list`。
-- `.cproject` 与 Debug 目录不一致：记录生成文件时间和当前执行的构建命令，避免用旧产物解释新配置。
-
-调试记录建议：
+### 9.3 验证步骤：调试记录
 
 - 记录 `.project`、`.cproject`、`.mxproject` 和 `.settings` 分别证明的内容。
 - 对 Debug/Release 差异，分别记录目标 MCU、宏、包含路径、链接脚本和构建器。
@@ -464,7 +464,15 @@ encoding/<project>=UTF-8
 - 对 Debug 构建产物，记录 `sources.mk`、`objects.list` 和 `makefile` 的生成事实，并标注它们不是配置源头。
 - 对 IDE 索引问题，只记录工程配置证据，不把索引异常直接写成编译失败结论。
 
-调试边界：
+### 9.4 解决方案：配置与产物分层
+
+先确认 `.project/.cproject/.mxproject/.settings` 这些配置源头，再核对 `Debug` 目录中的生成产物。若两者不一致，优先记录构建时间、构建命令和生成文件来源，不直接把旧产物当成当前配置结论。
+
+### 9.5 解决方案：索引与构建分开判断
+
+IDE 索引异常只说明本机工作区、索引器或路径配置可能有问题；构建失败需要回到编译命令、包含路径、宏定义和对象清单验证。两类问题不要混写成同一个结论。
+
+### 9.6 经验总结：调试边界
 
 当前仓库能证明工程配置、宏定义、路径和编码设置。IDE 索引表现、具体工作区状态和本机插件行为需要现场截图或日志；缺少这些证据时保持【待验证】。
 
