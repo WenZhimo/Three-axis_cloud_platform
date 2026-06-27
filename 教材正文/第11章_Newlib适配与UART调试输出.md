@@ -661,7 +661,7 @@ return len
 - 当前 Debug map 显示浮点格式化相关库成员会拉入 `_dtoa_r`、`malloc`、`_malloc_r` 和 `_sbrk_r` 等符号。
 - `-u _scanf_float` 只说明浮点扫描库能力被链接，不证明 UART 标准输入已经实现。
 - `main.c`、`mpu6050.c` 和 `mpu6050Calibration.c` 中的 `printf()` 是项目调试观察的直接证据。
-- `.list` 能把 `_write_r -> _write -> HAL_UART_Transmit()` 和 `_sbrk_r -> _sbrk()` 展开到反汇编调用边；`.su` / `.cyclo` 能给出 `_write()`、`fputc()`、`_sbrk()` 与 `HAL_UART_Transmit()` 的静态栈和圈复杂度估算，但这些都不能证明某次运行的串口输出、堆峰值或栈水位已经安全。
+- `.map/.list/.su/.cyclo` 的构建产物结论统一回到第8节、第10.7节到第10.9节判断：它们能证明 `_write` 重定向、浮点格式化库成员、`_write_r -> _write -> HAL_UART_Transmit()`、`_sbrk_r -> _sbrk()`、静态栈和圈复杂度条目进入某次 Debug 构建，但不能替代某次运行的串口输出、堆峰值、栈水位、终端日志或 PC10 波形证据。
 
 本章边界：
 
