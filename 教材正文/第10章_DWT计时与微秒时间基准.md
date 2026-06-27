@@ -618,7 +618,7 @@ SysTick 提供连续时基，DWT 负责短时间等待。
 - `micros()` 的 32 位微秒时间戳约每 71.58min 回绕一次，短间隔应使用无符号差值理解。
 - `micros()` 通过两次 `HAL_GetTick()` 与两次 `SysTick->VAL` 降低跨 tick 读数风险，但它不是关中断后的原子快照。
 - `DWT_Delay_us()` 当前使用整数除法和 32 位乘法，1000us 调用安全，但长等待和移植时钟需要重新审查。
-- 当前 Debug `.su/.cyclo` 文件显示：`micros` 为 32 字节静态栈、圈复杂度 2；`DWT_Delay_us` 为 24 字节静态栈、圈复杂度 2；`HAL_GetTick` 为 4 字节静态栈、圈复杂度 1。
+- `.su/.cyclo` 的静态资源结论统一回到第8.7节判断：当前 Debug 构建中 `micros`、`DWT_Delay_us` 与 `HAL_GetTick` 都生成了静态栈和圈复杂度条目，但这些条目只能说明本次编译的静态估算，不能替代运行时最坏栈深度、500Hz 抖动或采样周期实测证据。
 - `mpu6050Calibration.c` 在温度补偿采样中使用 `DWT_Delay_us(sampleRate)`。
 - 同一标定函数中的中间升温等待使用 `HAL_Delay(10000)`，实际时间基准是 HAL 毫秒 tick，而不是 DWT 微秒忙等。
 - `mpu6050.c` 在静态零偏采样中使用 `DWT_Delay_us(1000)`。
