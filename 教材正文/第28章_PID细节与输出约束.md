@@ -549,10 +549,7 @@ rollDiag.stepLimit ≈ 0.000785
 `max(eepromConfig.rateLimit * safeDt, AXIS_MIN_STEP_LIMIT_RAD)`，不能只看
 `rollDiag.stepLimit` 就断言最终限速阈值。
 
-Pitch/Yaw 当前直接使用 `eepromConfig.rateLimit` 作为每帧差值上限，
-即约 `0.7854 rad/frame`。这个数量级远大于 Roll 的 `rateLimit * dt` 结果。
-所以教材不能把三轴速率限制写成同一物理含义；Pitch/Yaw 当前更像“每帧最大变化量”，
-Roll 更像“每秒速率换算到本帧步长”。设计意图和实物效果需要继续【待验证】。
+Pitch/Yaw 当前直接使用 `eepromConfig.rateLimit` 作为每帧差值上限。这里先记住一个边界：三轴限速表达式不同，不能把 `rateLimit` 直接写成同一物理单位。完整的单位语义和证据分层，放到第8.6.1节统一判断。
 
 还要注意，三轴的 `outputRate[]` 都是在速率限制前计算的。
 如果本帧输出被速率限制改写，`outputRate[]` 仍保留限速前差值。
