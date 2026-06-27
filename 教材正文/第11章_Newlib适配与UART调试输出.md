@@ -419,7 +419,11 @@ return len
 
 本章调试围绕“字符是否能从 `printf()` 走到 USART3”展开。
 
-可观察对象：
+本节按统一调试结构组织：现象 -> 可能原因 -> 定位方法 -> 验证步骤 -> 解决方案 -> 经验总结。对第11章而言，核心是把“Newlib 格式化路径”“USART3 发送路径”和“主机侧可见输出”分开验证。
+
+### 9.1 现象与可能原因
+
+可观察现象包括：
 
 - `main.c` 中 MPU6050 初始化成功、跳过校准或失败提示。
 - `mpu6050.c` 中器件 ID 检查和错误提示。
@@ -428,19 +432,24 @@ return len
 - `Debug/Three-axis_cloud_platformV2.map` 中是否出现 `_printf_float`、`_dtoa_r`、`malloc`、`_malloc_r` 和 `_sbrk_r`。
 - `.ioc` 中 PC10/PC11 是否对应 USART3_TX/RX。
 
-定位顺序：
+常见可能原因包括：`printf()` 早于 `MX_USART3_UART_Init()`、强 `_write()` 没有覆盖弱实现、USART3 GPIO 或重映射未生效、`HAL_UART_Transmit()` 返回忙或超时、浮点格式化链接选项缺失、SysTick 节拍异常，或主机侧接线和终端参数缺少实测证据。
+
+### 9.2 定位方法
 
 1. 如果完全没有输出，先确认 `MX_USART3_UART_Init()` 位于第一次 `printf()` 之前。
 2. 再确认 `usart.c` 中是否存在 GCC 条件下的强 `_write()`，以及它是否调用 `HAL_UART_Transmit(&huart3, ...)`。
 3. 再确认 `HAL_UART_MspInit()` 是否启用 USART3、GPIOC、PC10/PC11 和 USART3 部分重映射。
 4. 在 `HAL_UART_Transmit()` 入口断点观察 `huart3.gState`、`ErrorCode` 和返回值，确认是否出现 `HAL_BUSY` 或 `HAL_TIMEOUT`。
+
+### 9.3 验证步骤
+
 5. 如果整数输出正常但浮点输出异常，检查 `.cproject` 和 `Debug/makefile` 中的 `-u _printf_float`。
 6. 如果输出间隔异常，先回到第09章检查 `HAL_GetTick()` 和 SysTick 时基，再检查 `last_print_tick` 的更新逻辑。
 7. 如果 MCU 内部路径成立但主机无输出，再检查 PC10/PC11、TX/RX 交叉、共地、115200 8N1 和终端接收记录【待验证】。
 
 当前仓库没有串口接线、外部 USB 转串口设备或终端工具配置证据，因此具体物理接线和上位机串口工具参数只能标记为【待验证】。教材在本章只确认工程内部的 USART3 输出路径。
 
-调试记录建议：
+### 9.4 解决方案：调试记录
 
 - 记录 `printf()`、`_write()`、`fputc()`、`HAL_UART_Transmit()` 和 `huart3` 之间的调用链证据。
 - 对 `_write()`、`fputc()` 和 `HAL_UART_Transmit()` 分别设断点，可区分 Newlib 实际走缓冲写路径还是字符输出兼容路径。
@@ -451,6 +460,10 @@ return len
 - 若要验证 `scanf()` 或串口输入，不要只看 `-u _scanf_float`，还要确认 `_read()` 或 `__io_getchar()` 是否已经接到 USART3 RX。
 - 串口线、USB 转串口模块、波特率、终端截图和接收日志属于仓库外实测证据，缺失时标记为【待验证】。
 - 若日志内容来自运行现场，应同时记录固件版本、编译配置和触发路径，避免把旧日志当作当前仓库证据。
+
+### 9.5 经验总结
+
+本章的调试结论应按证据层级收敛：`.map/.list` 能证明当前 Debug 构建中的符号落点和调用链，断点能证明某次运行进入发送路径，终端日志或波形才能证明主机侧真实可见。缺少最后一层证据时，不把仓库内路径写成硬件输出已验证。
 
 ## 10. 常见问题
 
