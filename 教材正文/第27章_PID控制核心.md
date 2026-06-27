@@ -1611,13 +1611,7 @@ Pitch/Yaw 分支则直接把 `pidCmd - pidCmdPrev` 与 `eepromConfig.rateLimit` 
   `error_mech` 作为 PID 实参；Yaw 分支则用 `error_mech` 构造 `safe_target` 后进入 PID。
 - Roll 的 PID 调用受 `return_state_roll` 状态分支影响，不能写成无条件每帧同样调用。
 - `zeroPIDintegralError()` 和 `zeroPIDstates()` 在 AHRS 收敛后用于清空 PID 历史状态。
-- 当前 `.map/.list` 能证明 `initPID()`、`updatePID()`、`zeroPIDintegralError()`、
-  `zeroPIDstates()`、`computeMotorCommands()`、`standardRadianFormat()`、`wrapToPif()` 以及
-  `eepromConfig`、`holdIntegrators`、`pidCmd[]`、`pidCmdPrev[]`、`outputRate[]`、`rollDiag`
-  已进入当前 Debug 构建，并能看到 `main()` 与三轴 `updatePID()` 的反汇编调用点。
-- `.su/.cyclo` 还能补充 `updatePID()`、`initPID()`、`zeroPIDintegralError()`、
-  `zeroPIDstates()`、`standardRadianFormat()`、`computeMotorCommands()` 和 `main()` 的静态栈与圈复杂度，
-  但不能替代运行时栈水位、真实耗时或闭环稳定性证据。
+- 当前 `.map/.list/.su/.cyclo` 的构建产物结论统一回到第8.20节判断：它们能证明 PID 主路径、状态对象和静态资源条目进入某次 Debug 构建，但不能替代运行时栈水位、真实耗时或闭环稳定性证据。
 
 本章保留十二个边界：
 
