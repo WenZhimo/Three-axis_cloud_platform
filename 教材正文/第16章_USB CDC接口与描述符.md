@@ -840,8 +840,7 @@ USB CDC 调试应先区分“设备能枚举”“虚拟串口能出现”“项
 - CDC 类控制请求走 EP0 控制传输，CDC 数据字节流走 bulk OUT/IN 数据端点。
 - `Get_SerialNum()` 通过 STM32 唯一 ID 生成 USB 序列号字符串。
 - `bmAttributes=0xC0`、`USBD_SELF_POWERED=1` 和 `MaxPower=0x32` 只是描述符/协议层声明，硬件供电真实性仍需验证。
-- `.map` 证明 CDC 类函数、描述符对象、回调表、RX/TX 缓冲和字符串缓冲进入当前镜像；`.list` 证明接收回调和 EP0 控制请求路径有实际分支或函数指针调用证据。
-- 当前 Debug `.su/.cyclo` 文件显示：`CDC_Receive_FS` 为 16 字节静态栈、圈复杂度 1；`USBD_CDC_Setup` 为 32 字节静态栈、圈复杂度 12；`IntToUnicode` 为 32 字节静态栈、圈复杂度 3。这些属于静态构建资源记录，不证明主机侧 CDC 通信成功。
+- `.map/.list/.su/.cyclo` 的构建产物结论统一回到第13节判断：它们能证明 CDC 类函数、描述符对象、回调表、RX/TX 缓冲、字符串缓冲、接收回调、EP0 控制请求路径、静态栈和圈复杂度条目进入某次 Debug 构建；但 `CDC_Transmit_FS()` 与 `USBD_CDC_TransmitPacket()` 当前缺少最终镜像和业务调用证据，也不能替代主机侧 CDC 通信成功记录。
 
 本章边界：
 
