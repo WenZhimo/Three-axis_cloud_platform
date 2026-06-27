@@ -530,7 +530,7 @@ AFIO 时钟对应 `RCC->APB2ENR[0] = 1`，并能解释
   调试口保留则应结合 NOJTAG 源码链和 ST-LINK 实测证据。
 - `AFIO_REMAP_PARTIAL()` 内部出现的 `AFIO_MAPR_SWJ_CFG = 0x07000000`
   是掩码常量，不是项目最终调试接口目标值；不能把它误读成关闭 SW-DP。
-- `.map/.list` 能证明 `HAL_MspInit()`、`HAL_UART_MspInit()` 进入当前镜像并保留 NOJTAG/USART3 partial remap 的源码旁注，`.su/.cyclo` 能证明两个 MSP 函数的静态栈和圈复杂度条目。
+- `.map/.list/.su/.cyclo` 的构建产物结论统一回到第8.7节到第8.7.1节判断：它们能证明 `HAL_MspInit()`、`HAL_UART_MspInit()`、NOJTAG/USART3 partial remap 源码旁注、静态栈和圈复杂度条目进入当前 Debug 构建，但不能替代 `AFIO->MAPR` 运行观察、ST-LINK/GDB 日志、串口主机日志或外部波形证据。
 - 本章只建立引脚重映射和调试保留前提，UART 输出和 ST-LINK 调试配置留到后续章节。
 
 本章边界：
