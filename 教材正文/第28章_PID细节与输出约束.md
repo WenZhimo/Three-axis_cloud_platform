@@ -1619,7 +1619,7 @@ Pitch/Yaw 直接使用 `rateLimit`。
 
 本章把第27章的 PID 主干继续扩展为“可运行、可保护、可调试”的控制细节。
 
-当前项目中：
+【必须掌握】主线结论：
 
 - `pid.c` 使用 `F_CUT=20Hz` 和一阶低通形式平滑 D 项。
 - `dAverage` 由当前滤波 D 项和两帧历史值平均得到。
@@ -1635,6 +1635,9 @@ Pitch/Yaw 直接使用 `rateLimit`。
 - 三轴都有输出幅值限制，但 Roll、Pitch、Yaw 的速率限制实现细节不同。
 - `rateLimit` 当前限制的是 `pidCmd[]` 相对 `pidCmdPrev[]` 的变化，随后影响定子电角合成；
   不能直接写成机械目标角速度限制。
+
+【工程深化】调试与变量判读：
+
 - `pidCmdPrev[]` 保存约束后的输出历史，用于下一帧速率限制。
 - `rollDiag.pidRaw`、`pidClamped`、`pidApplied` 分别对应 PID 原始输出、幅值限幅后值和速率限制后值。
 - `rollDiag.dPidRaw` 是速率限制前的输出差值，不等于受限后的最终帧间变化量。
@@ -1645,6 +1648,9 @@ Pitch/Yaw 直接使用 `rateLimit`。
 - `pitchTargetSlew`、`yawTargetSlew`、`yawCtrlAngle` 等状态当前只证明定义存在，不能证明 Pitch/Yaw 目标斜坡已接入。
 - `YAW_CTRL_LPF_TAU_S`、`YAW_ERR_DEADBAND_RAD` 和 Roll 收敛门控宏当前不能写成已生效运行逻辑。
 - `tools/pid_tuning_sim.py` 与固件共享 D 项滤波和限幅思想，但在 D 项初值、角度差分包裹和统一速率限制上不是逐帧等价模型。
+
+【证据与验证】证据层级：
+
 - `Debug/Three-axis_cloud_platformV2.map` 能证明 PID、输出约束函数和关键全局对象进入当前 Debug 镜像。
 - `Debug/Three-axis_cloud_platformV2.list` 能证明三轴 `updatePID()` 调用、幅值限幅、速率限制、`pidCmdPrev[]` 更新和 `PWM_Motor_SetAngle()` 调用的构建路径。
 - `.su/.cyclo` 能补充 `clampf()`、`moveTowardsf()`、`wrapToPif()`、`moveTowardsAnglef()`、
