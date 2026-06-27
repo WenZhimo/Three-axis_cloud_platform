@@ -1663,11 +1663,7 @@ Pitch/Yaw 直接使用 `rateLimit`。
 
 【证据与验证】证据层级：
 
-- `Debug/Three-axis_cloud_platformV2.map` 能证明 PID、输出约束函数和关键全局对象进入当前 Debug 镜像。
-- `Debug/Three-axis_cloud_platformV2.list` 能证明三轴 `updatePID()` 调用、幅值限幅、速率限制、`pidCmdPrev[]` 更新和 `PWM_Motor_SetAngle()` 调用的构建路径。
-- `.su/.cyclo` 能补充 `clampf()`、`moveTowardsf()`、`wrapToPif()`、`moveTowardsAnglef()`、
-  `updatePID()`、`computeMotorCommands()` 和 `PWM_Motor_SetAngle()` 的静态栈与圈复杂度线索，
-  但不能替代真实耗时、栈水位、硬件安全或闭环稳定性证据。
+- `.map/.list/.su/.cyclo` 的构建产物结论统一回到第8.12节判断：它们能证明 PID 细节、输出约束和电机输出调用路径进入某次 Debug 构建，但不能替代真实耗时、栈水位、硬件安全或闭环稳定性证据。
 - Åström/Hägglund、Åström/Murray 和 MathWorks PID 文档能支撑 D 项噪声、设定值冲击、执行器饱和与 anti-windup 的通用工程背景，但不能替代本项目源码和构建产物证据。
 
 本章保留以下边界：
