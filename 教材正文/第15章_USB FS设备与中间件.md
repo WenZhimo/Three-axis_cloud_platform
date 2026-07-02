@@ -179,7 +179,11 @@ PA11/PA12 没有像普通 GPIO 那样在 `gpio.c` 中手写成输出或输入。
 
 这里还要拆开一个命名陷阱：STM32F103 设备头文件把 `USB_LP_IRQHandler` 和 `CAN1_RX0_IRQHandler` 都定义为 `USB_LP_CAN1_RX0_IRQHandler`。也就是说，这个名字表达的是 USB 低优先级和 CAN1 RX0 共用的 NVIC 向量入口，不自动证明项目启用了 CAN 接收业务。
 
-当前项目的证据指向 USB 路径：`.ioc` 启用 `NVIC.USB_LP_CAN1_RX0_IRQn`，`HAL_PCD_MspInit()` 配置并使能 `USB_LP_CAN1_RX0_IRQn`，`USB_LP_CAN1_RX0_IRQHandler()` 内部调用 `HAL_PCD_IRQHandler(&hpcd_USB_FS)`。同时 `stm32f1xx_hal_conf.h` 中 CAN HAL 模块保持注释状态，当前仓库没有发现 `MX_CAN_Init()` 或 CAN 业务处理路径。因此第15章只能把该入口写成当前 USB PCD 分发入口，不能因为名称中含有 `CAN1_RX0` 就推断项目使用 CAN。
+当前项目的证据指向 USB 路径，可以分三层看：
+
+- USB 路径证据：`.ioc` 启用 `NVIC.USB_LP_CAN1_RX0_IRQn`，`HAL_PCD_MspInit()` 配置并使能 `USB_LP_CAN1_RX0_IRQn`，`USB_LP_CAN1_RX0_IRQHandler()` 内部调用 `HAL_PCD_IRQHandler(&hpcd_USB_FS)`。
+- CAN 反向边界：`stm32f1xx_hal_conf.h` 中 CAN HAL 模块保持注释状态，当前仓库没有发现 `MX_CAN_Init()` 或 CAN 业务处理路径。
+- 本章写法边界：第15章只能把该入口写成当前 USB PCD 分发入口，不能因为名称中含有 `CAN1_RX0` 就推断项目使用 CAN。
 
 在 STM32F1 USB FS 路径下，`HAL_PCD_IRQHandler()` 会读取 `USB_ISTR` 相关中断状态，
 并按事件分派到不同处理：
