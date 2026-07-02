@@ -451,11 +451,56 @@ APB2 = HCLK / 1 = 72 MHz
 
 CMSIS 章节要区分三类证据，避免把“头文件能定义”误写成“硬件已正确运行”。
 
-第一类是权威定义证据。`Drivers/CMSIS/Include/core_cm3.h` 能证明 `SysTick_Type`、`DWT_Type`、`CoreDebug_Type`、`SCB_Type`、`SysTick_Config()` 和 NVIC 内联函数的接口定义存在；`Drivers/CMSIS/Device/ST/STM32F1xx/Include/stm32f103xe.h` 能证明 `IRQn_Type`、`__NVIC_PRIO_BITS`、`__Vendor_SysTickConfig`、`TIM_TypeDef`、外设基地址和位掩码属于 STM32F103xE 设备头文件。它们提供的是编译期接口、地址映射和位定义证据，不单独证明某个寄存器在运行时已经按预期写入或产生硬件效果。
+第一类是权威定义证据。
 
-第二类是 `.map` 符号进入证据。当前 `Debug/Three-axis_cloud_platformV2.map` 中可以看到 `.text.micros`、`.text.SysTick_Handler`、`.text.DWT_Delay_us`、`.text.SysTick_Config`、`.text.__NVIC_SetPriority`、`.text.__NVIC_EnableIRQ`、`.text.HAL_NVIC_SetPriority` 和 `.text.HAL_NVIC_EnableIRQ` 等条目。这能证明这些函数或内联展开后的代码路径进入了最终链接产物，并能给出它们位于 Flash 中的符号地址。但是 `.map` 不能证明函数一定被执行到，也不能证明 SysTick 中断已经真实触发、DWT 计数器已经递增或 NVIC 配置符合现场需求。
+`Drivers/CMSIS/Include/core_cm3.h` 能证明这些 Cortex-M3 接口定义存在：
 
-第三类是 `.list` 指令级上下文证据。当前 `Debug/Three-axis_cloud_platformV2.list` 中可以看到 `micros()` 读取 `SysTick->VAL` 和 `SysTick->LOAD`，`main()` 写 `CoreDebug->DEMCR`、`DWT->CYCCNT` 和 `DWT->CTRL`，`SysTick_Handler()` 读取 `DWT->CYCCNT`，`DWT_Delay_us()` 用 `DWT->CYCCNT` 做差值等待，`SysTick_Config()` 写入 `SysTick->LOAD`、`SysTick->VAL` 和 `SysTick->CTRL`，以及 HAL NVIC 包装函数调用 CMSIS NVIC 内联函数。它能把 C 语句和反汇编位置对应起来，证明源码访问已被编译进当前 Debug 构建；但它仍不能替代断点读回、寄存器窗口截图、逻辑分析仪或示波器证据。
+- `SysTick_Type`
+- `DWT_Type`
+- `CoreDebug_Type`
+- `SCB_Type`
+- `SysTick_Config()`
+- NVIC 内联函数
+
+`Drivers/CMSIS/Device/ST/STM32F1xx/Include/stm32f103xe.h` 能证明这些 STM32F103xE 设备头文件定义存在：
+
+- `IRQn_Type`
+- `__NVIC_PRIO_BITS`
+- `__Vendor_SysTickConfig`
+- `TIM_TypeDef`
+- 外设基地址和位掩码
+
+它们提供的是编译期接口、地址映射和位定义证据，不单独证明某个寄存器在运行时已经按预期写入或产生硬件效果。
+
+第二类是 `.map` 符号进入证据。
+
+当前 `Debug/Three-axis_cloud_platformV2.map` 中可以看到这些条目：
+
+- `.text.micros`
+- `.text.SysTick_Handler`
+- `.text.DWT_Delay_us`
+- `.text.SysTick_Config`
+- `.text.__NVIC_SetPriority`
+- `.text.__NVIC_EnableIRQ`
+- `.text.HAL_NVIC_SetPriority`
+- `.text.HAL_NVIC_EnableIRQ`
+
+这能证明这些函数或内联展开后的代码路径进入了最终链接产物，并能给出它们位于 Flash 中的符号地址。
+
+但是 `.map` 不能证明函数一定被执行到，也不能证明 SysTick 中断已经真实触发、DWT 计数器已经递增或 NVIC 配置符合现场需求。
+
+第三类是 `.list` 指令级上下文证据。
+
+当前 `Debug/Three-axis_cloud_platformV2.list` 中可以看到这些源码访问已经进入当前 Debug 构建：
+
+- `micros()` 读取 `SysTick->VAL` 和 `SysTick->LOAD`。
+- `main()` 写 `CoreDebug->DEMCR`、`DWT->CYCCNT` 和 `DWT->CTRL`。
+- `SysTick_Handler()` 读取 `DWT->CYCCNT`。
+- `DWT_Delay_us()` 用 `DWT->CYCCNT` 做差值等待。
+- `SysTick_Config()` 写入 `SysTick->LOAD`、`SysTick->VAL` 和 `SysTick->CTRL`。
+- HAL NVIC 包装函数调用 CMSIS NVIC 内联函数。
+
+它能把 C 语句和反汇编位置对应起来，但仍不能替代断点读回、寄存器窗口截图、逻辑分析仪或示波器证据。
 
 因此，本章可以写成“项目使用 CMSIS 名称访问 Cortex-M3 内核资源和 STM32F103xE 外设资源，并且这些访问已进入当前构建产物”。不能写成“微秒计时精度已经满足要求”“DWT 在所有运行条件下可靠工作”“SysTick 实际频率必定等于 1kHz”或“NVIC 优先级设计已经完成现场验证”。这些运行时结论仍保持【待验证】。
 
