@@ -388,11 +388,33 @@ SysTick 重装载值依赖更新后的 `SystemCoreClock`；`DWT_Delay_us()` 的
 
 #### 8.7.1 `.map/.list` 最终地址与 DWT 运行边界
 
-更细地拆开看，`Debug/Three-axis_cloud_platformV2.map` 给出的不是“源码里存在这些函数”，而是当前 Debug 链接结果中的最终放置位置：`micros` 位于 `.text.micros`，入口地址为 `0x08001458`；`DWT_Delay_us` 位于 `.text.DWT_Delay_us`，入口地址为 `0x080036f0`；`HAL_GetTick` 位于 `.text.HAL_GetTick`，入口地址为 `0x080058f4`。这能证明三条相关函数路径已经进入当前 ELF 的 Flash 代码段。
+更细地拆开看，`Debug/Three-axis_cloud_platformV2.map` 给出的不是“源码里存在这些函数”，而是当前 Debug 链接结果中的最终放置位置：
 
-`Debug/Three-axis_cloud_platformV2.list` 进一步把这些最终地址和源代码行、反汇编指令对应起来：`micros()` 调用 `HAL_GetTick()`，并读取 `SysTick->VAL` 与 `SysTick->LOAD`；`main()` 写入 `CoreDebug->DEMCR`、`DWT->CYCCNT` 和 `DWT->CTRL`，形成 DWT 周期计数启用序列；`main()` 还调用 `micros()` 初始化 `previous500HzTime`，并在 500Hz 分支中计算 `currentTime`、`deltaTime500Hz` 与 `executionTime500Hz`；`mpu6050.c` 的静态零偏采样调用 `DWT_Delay_us(1000)`；`DWT_Delay_us()` 自身读取 `DWT->CYCCNT`，计算 `us * (SystemCoreClock / 1000000)`，并用无符号差值循环等待目标周期数。
+- `micros` 位于 `.text.micros`，入口地址为 `0x08001458`。
+- `DWT_Delay_us` 位于 `.text.DWT_Delay_us`，入口地址为 `0x080036f0`。
+- `HAL_GetTick` 位于 `.text.HAL_GetTick`，入口地址为 `0x080058f4`。
 
-因此，`.map/.list` 可以证明当前 Debug 构建包含“SysTick/HAL tick 时间戳路径”“DWT 启用写寄存器路径”“DWT 忙等路径”和“MPU6050 采样等待调用点”。它们不能证明烧录到板上的一定是同一个 ELF，不能证明 `DWT->CYCCNT` 在运行时真实递增，不能证明 `DWT_Delay_us(1000)` 的墙钟等待精确等于 1000us，也不能证明 500Hz 控制分支没有抖动或采样频率严格达到 1000Hz。这些结论需要调试器寄存器回读、连续日志、GPIO 翻转计时、示波器或逻辑分析仪证据；缺少这些证据时继续标为【待验证】。
+这能证明三条相关函数路径已经进入当前 ELF 的 Flash 代码段。
+
+`Debug/Three-axis_cloud_platformV2.list` 进一步把这些最终地址和源代码行、反汇编指令对应起来：
+
+- `micros()` 调用 `HAL_GetTick()`，并读取 `SysTick->VAL` 与 `SysTick->LOAD`。
+- `main()` 写入 `CoreDebug->DEMCR`、`DWT->CYCCNT` 和 `DWT->CTRL`，形成 DWT 周期计数启用序列。
+- `main()` 调用 `micros()` 初始化 `previous500HzTime`。
+- `main()` 在 500Hz 分支中计算 `currentTime`、`deltaTime500Hz` 与 `executionTime500Hz`。
+- `mpu6050.c` 的静态零偏采样调用 `DWT_Delay_us(1000)`。
+- `DWT_Delay_us()` 自身读取 `DWT->CYCCNT`，计算 `us * (SystemCoreClock / 1000000)`，并用无符号差值循环等待目标周期数。
+
+因此，`.map/.list` 可以证明当前 Debug 构建包含这些静态路径：
+
+- SysTick/HAL tick 时间戳路径。
+- DWT 启用写寄存器路径。
+- DWT 忙等路径。
+- MPU6050 采样等待调用点。
+
+它们不能证明烧录到板上的一定是同一个 ELF，不能证明 `DWT->CYCCNT` 在运行时真实递增，不能证明 `DWT_Delay_us(1000)` 的墙钟等待精确等于 1000us，也不能证明 500Hz 控制分支没有抖动或采样频率严格达到 1000Hz。
+
+这些结论需要调试器寄存器回读、连续日志、GPIO 翻转计时、示波器或逻辑分析仪证据；缺少这些证据时继续标为【待验证】。
 
 ### 本节证据边界
 
