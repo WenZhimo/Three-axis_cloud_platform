@@ -337,9 +337,15 @@ ChannelState == READY
 
 这说明 ARR 预装载没有开启。ARR 决定周期长度，当前项目运行时没有发现动态改 ARR 的业务路径，因此关闭 ARR 预装载不会影响当前 20kHz 固定载波的基本成立。
 
-还要再拆一层：ARR 预装载关闭，不等于初始化阶段没有更新事件。`HAL_TIM_PWM_Init()` 会调用 `TIM_Base_SetConfig()`，该函数把 `Structure->Period` 写入 `TIMx->ARR`，把 `Structure->Prescaler` 写入 `TIMx->PSC`，随后写 `TIMx->EGR = TIM_EGR_UG`。在当前工程里，`Structure->Period` 来自 `htimx.Init.Period = 3599`，`Structure->Prescaler` 来自 `htimx.Init.Prescaler = 0`。
+还要再拆一层：ARR 预装载关闭，不等于初始化阶段没有更新事件。
 
-这条链路能解释一个常见疑问：`tim.c` 中的 `htimx.Init` 字段不是硬件寄存器本身，它先是 HAL 句柄中的配置意图；进入 `HAL_TIM_PWM_Init()` 或 `HAL_TIM_Base_Init()` 后，HAL 才把这些字段写到 `ARR/PSC`。构建产物中的 `TIM_Base_SetConfig()`、`TIMx->ARR`、`TIMx->PSC` 和 `TIMx->EGR = TIM_EGR_UG` 只能证明这条写寄存器路径进入了 ELF，不能替代断点下的寄存器读数或示波器频率测量。
+这条链路可以分成三层理解：
+
+- 配置意图：`tim.c` 中的 `htimx.Init` 字段不是硬件寄存器本身，而是 HAL 句柄中的初始化配置。
+- 寄存器写入：`HAL_TIM_PWM_Init()` 会调用 `TIM_Base_SetConfig()`，把 `Structure->Period` 写入 `TIMx->ARR`，把 `Structure->Prescaler` 写入 `TIMx->PSC`，随后写 `TIMx->EGR = TIM_EGR_UG`。
+- 当前取值：在当前工程里，`Structure->Period` 来自 `htimx.Init.Period = 3599`，`Structure->Prescaler` 来自 `htimx.Init.Prescaler = 0`。
+
+因此，构建产物中的 `TIM_Base_SetConfig()`、`TIMx->ARR`、`TIMx->PSC` 和 `TIMx->EGR = TIM_EGR_UG` 只能证明这条写寄存器路径进入了 ELF，不能替代断点下的寄存器读数或示波器频率测量。
 
 但 CCR 是另一件事。`HAL_TIM_PWM_ConfigChannel()` 会在通道配置阶段设置对应 `OCxPE`，因此本章不能再把当前项目描述成“没有输出比较预装载”。
 
