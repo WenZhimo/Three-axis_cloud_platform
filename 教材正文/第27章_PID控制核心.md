@@ -1658,6 +1658,8 @@ Pitch/Yaw 分支则直接把 `pidCmd - pidCmdPrev` 与 `eepromConfig.rateLimit` 
 
 项目证据：
 
+以下清单用于追溯 PID 接口、默认参数、主循环调用和构建产物证据来源，建议按“源码文件 -> 构建产物 -> 函数 -> 变量 -> 配置项”的顺序分组查阅，不必线性阅读全部条目。
+
 - `Drivers/SRC/Inc/pid.h`
 - `Drivers/SRC/Src/pid.c`
 - `Drivers/SRC/Src/config.c`

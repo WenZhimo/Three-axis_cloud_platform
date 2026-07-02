@@ -1689,6 +1689,8 @@ Pitch/Yaw 直接使用 `rateLimit`。
 
 项目证据：
 
+以下清单用于追溯 PID 细节、输出约束、调参脚本和构建产物证据来源，建议按“源码文件 -> 工具脚本 -> 构建产物 -> 函数 -> 变量 -> 配置项”的顺序分组查阅，不必线性阅读全部条目。
+
 - `Drivers/SRC/Src/pid.c`
 - `tools/pid_tuning_sim.py`
 - `Drivers/SRC/Src/computeMotorCommands.c`
