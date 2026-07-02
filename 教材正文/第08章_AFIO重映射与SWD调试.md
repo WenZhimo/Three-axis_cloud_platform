@@ -16,7 +16,7 @@
 | 【必须掌握】 | 第1节到第5节，第13节总结 | 需要理解 AFIO 为什么影响 USART3 引脚路线、PA13/PA14 为什么要保留给串行调试接口的读者 |
 | 【工程深化】 | 第6节到第8节，第9节调试方法 | 需要维护 `HAL_MspInit()`、`HAL_UART_MspInit()`、USART3 部分重映射和 SWD/JTAG 配置边界的读者 |
 | 【拓展阅读】 | 第6节寄存器位域说明，第8.5节到第8.7.1节，第10节常见问题 | 需要进一步理解 `AFIO->MAPR`、`SWJ_CFG`、`USART3_REMAP`、`.launch` 和封装引脚边界的读者 |
-| 【证据与验证】 | 第8.7节到第8.7.1节、第9节、章节尾部固定检查，以及所有 `【待验证】` 项 | 需要审查 `.map/.list/.su/.cyclo`、运行时寄存器读数、ST-LINK/GDB 日志和外部串口证据的读者 |
+| 【证据与验证】 | 第8节、第9节、章节尾部固定检查，以及所有 `【待验证】` 项 | 需要审查 `.ioc` 串行调试接口、全局 AFIO 重映射、USART3 部分重映射、`.launch` 调试配置、`.map/.list/.su/.cyclo` 构建产物、运行时寄存器、ST-LINK/GDB 日志和外部串口证据的读者 |
 
 如果只是沿调试与复用主线学习，可以先抓住“保留 PA13/PA14 串行调试接口 -> 关闭 JTAG 但保留 SWD -> USART3 通过 AFIO 部分重映射落到 PC10/PC11 -> UART 输出和下载调试留到后续章节”这条链；排查引脚冲突或调试连接异常时，再回到证据边界和调试方法小节。
 
@@ -225,7 +225,7 @@ __HAL_AFIO_REMAP_USART3_PARTIAL()
 
 ## 8. 代码分析
 
-### 1. `.ioc` 中的串行调试接口
+### 8.1 `.ioc` 中的串行调试接口
 
 `Three-axis_cloud_platformV2.ioc` 中 PA13 被配置为串行调试数据相关信号，PA14 被配置为串行调试时钟相关信号。
 
@@ -240,7 +240,7 @@ __HAL_AFIO_REMAP_USART3_PARTIAL()
 
 这些配置只证明固件工程的配置意图。真实 ST-LINK 是否连上，还要看调试器、接线、供电、复位策略和主机工具状态。
 
-### 2. `HAL_MspInit()` 中的全局重映射
+### 8.2 `HAL_MspInit()` 中的全局重映射
 
 `Core/Src/stm32f1xx_hal_msp.c` 中 `HAL_MspInit()` 启用 AFIO 时钟，随后调用 `__HAL_AFIO_REMAP_SWJ_NOJTAG()`；同一初始化段中还启用了 PWR 时钟，但它不是本章 AFIO 重映射机制的解释重点。
 
@@ -257,7 +257,7 @@ __HAL_AFIO_REMAP_USART3_PARTIAL()
 
 本项目选择第三种。它比完全关闭 SWJ 更适合调试阶段，因为 SW-DP 仍保留；它比 Full SWJ 占用更少调试相关资源。当前仓库没有证明项目实际复用了 JTAG 被释放的其它引脚，因此不能把“释放 JTAG 资源”写成已被硬件使用的事实。
 
-### 3. `.ioc` 中的 USART3 引脚
+### 8.3 `.ioc` 中的 USART3 引脚
 
 `.ioc` 中 PC10 被配置为 USART3_TX，PC11 被配置为 USART3_RX。
 
@@ -276,7 +276,7 @@ STM32F103xC/xD/xE 数据手册的封装引脚表中，PD8/PD9 不属于 LQFP64
 引出的普通引脚路线。因此本项目不能把 USART3 full remap 当成与 PC10/PC11
 同等可用的备选方案。
 
-### 4. `HAL_UART_MspInit()` 中的 USART3 部分重映射
+### 8.4 `HAL_UART_MspInit()` 中的 USART3 部分重映射
 
 `Core/Src/usart.c` 中 `HAL_UART_MspInit()` 在 `USART3` 分支内调用 `__HAL_AFIO_REMAP_USART3_PARTIAL()`。
 
@@ -299,17 +299,17 @@ MX_USART3_UART_Init()
 
 这条链路仍不能证明串口已经发送成功。发送函数、波特率、PCLK1 频率、外部转接器、主机串口工具和线序都属于第11章或仓库外实测范围。
 
-### 5. `.launch` 中的 SWD 调试配置边界
+### 8.5 `.launch` 中的 SWD 调试配置边界
 
 项目根目录存在 `Three-axis_cloud_platformV2 Debug.launch`。该文件中可以看到 `swd_mode=true`、`connect_under_reset`、`stopAt=main` 等 IDE 调试配置。
 
 这些配置与本章的 SWD 保留方向一致，但它们仍然只是工程配置证据。实际下载和调试是否成功，还需要 ST-LINK 硬件、目标板供电、复位线、驱动、GDB server 日志或现场调试记录证明。
 
-### 6. 和后续调试章节的边界
+### 8.6 和后续调试章节的边界
 
 本章只确认串行调试接口保留与 AFIO 重映射。ST-LINK 启动配置、连接策略、GDB 停在 `main` 等内容属于后续 `ST-LINK与SWD调试配置`，不在本章展开。
 
-### 7. 构建产物证据边界
+### 8.7 构建产物证据边界
 
 当前 Debug 构建产物可以把 AFIO/SWD 证据从“源码中写了宏”推进到“宏所在函数进入最终镜像，并在 `.list` 中展开为对 `AFIO->MAPR` 的读改写路径”。这类证据适合确认入口、链接和函数级资源，但仍不能证明调试器已经连上目标板，也不能证明 USART3 已经实际输出字符。
 
@@ -323,7 +323,7 @@ MX_USART3_UART_Init()
 | 符号进入镜像 | `HAL_MspInit()` / `HAL_UART_MspInit()` | - | - | `Debug/Three-axis_cloud_platformV2.map` | 证明两个 MSP 符号被链接进当前镜像，不能证明每次上电都越过所有初始化错误路径。 |
 | 宏语义来源 | `AFIO_MAPR_USART3_REMAP_*` / `AFIO_MAPR_SWJ_CFG_*` | - | - | `stm32f1xx_hal_gpio_ex.h` / `stm32f103xe.h` | 证明 partial remap 和 JTAG disable 的位域常量来源，不能替代运行时寄存器读数。 |
 
-### 7.1 `AFIO->MAPR` 最终地址与宏展开边界
+#### 8.7.1 `AFIO->MAPR` 最终地址与宏展开边界
 
 当前 `Debug/Three-axis_cloud_platformV2.map` 中，`HAL_MspInit()` 位于 `0x08001a58`，`HAL_UART_MspInit()` 位于 `0x080024bc`。这说明本章讨论的两个关键入口已经进入当前最终 Flash 镜像，而不是只停留在源码文本或输入对象文件里。
 
