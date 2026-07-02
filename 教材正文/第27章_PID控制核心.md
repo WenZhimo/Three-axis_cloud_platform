@@ -1613,24 +1613,15 @@ Pitch/Yaw 分支则直接把 `pidCmd - pidCmdPrev` 与 `eepromConfig.rateLimit` 
 - `zeroPIDintegralError()` 和 `zeroPIDstates()` 在 AHRS 收敛后用于清空 PID 历史状态。
 - 当前 `.map/.list/.su/.cyclo` 的构建产物结论统一回到第8.20节判断：它们能证明 PID 主路径、状态对象和静态资源条目进入某次 Debug 构建，但不能替代运行时栈水位、真实耗时或闭环稳定性证据。
 
-本章保留十二个边界：
+本章待验证分类：
 
-- D 项滤波的调参效果、目标角斜坡、输出限幅和积分抗饱和留到第28章展开。
-- 机械角到电角转换和三相 PWM 输出留到后续电机章节展开。
-- 当前 PID 参数存在 `config.c` 默认值和 `main.c` 调试覆盖值并存的情况，分析运行行为时必须以实际写入顺序为准。
-- `windupGuard` 是配置字段，但当前积分限幅执行来源是 `updatePID()` 内部固定常数。
-- Pitch/Roll 当前 `I=0.0` 时，`iTerm` 状态更新不等于输出积分项已经生效。
-- `holdIntegrators` 的同帧跨轴影响需要轴使能、Roll 分支状态和实测日志共同确认【待验证】。
-- `lastDcalcValue == 0.0f` 的哨兵值写法不能替代独立初始化有效标志。
-- D 项滤波系数由 `deltaT` 参与计算，异常 `deltaT` 回退会同时影响微分斜率和滤波响应。
-- 三轴共享 `updatePID()` 代码但状态对象不同，断点和日志必须标明当前传入的是
-  `&eepromConfig.PID[ROLL_PID]`、`&eepromConfig.PID[PITCH_PID]` 还是 `&eepromConfig.PID[YAW_PID]`。
-- `pidCmdPrev[]` 和 `outputRate[]` 属于 PID 后级输出约束，不改变 `updatePID()` 的位置式 PID 属性。
-- 同一 `rateLimit` 字段在 Roll 与 Pitch/Yaw 输出速率限制中的 `dt` 使用方式不同，是否为有意轴差异需要设计意图或实测日志确认【待验证】。
-- LQR/MPC 只能作为未来架构迁移讨论，不能写成当前项目采用的控制方法。
-- 当前仓库和 Debug 构建产物能证明公式分支、变量状态、符号进入镜像和反汇编调用点，不能单独证明闭环稳定性；稳定性仍需硬件日志或测试记录【待验证】。
-- 当前 `.su/.cyclo` 不能写成运行时栈水位、单帧耗时或 2ms 预算达标证明。
-
+| 类别 | 已由本章证明 | 仍保持【待验证】 |
+|---|---|---|
+| PID参数生效 | `config.c` 默认值、`main.c` 覆盖值、`.map/.list` 构建路径和 `eepromConfig.PID[]` 对象层级已经分开。 | 重新构建后的参数一致性、目标板 RAM 实际参数和 EEPROM 持久化恢复。 |
+| 时间步长与状态 | `deltaT` 回退、`safeDt` 分层、`iTerm`、D 项历史和 `lastDcalcValue` 哨兵边界已经按源码拆分。 | 某次运行是否触发回退、连续帧状态演化和哨兵值真实来源。 |
+| 三轴调用差异 | Pitch、Yaw、Roll 的 `updatePID()` 调用入口、轴使能和 `return_state_roll` 分支已经区分。 | 轴使能组合、Roll 分支状态、跨轴积分暂停和真实调试日志。 |
+| 后级输出约束 | `pidCmdPrev[]`、`outputRate[]` 和 `rateLimit` 属于 PID 后级边界，已与 `updatePID()` 主公式分开。 | Roll/Pitch/Yaw 限速单位设计、机械响应、方向和稳定性。 |
+| 构建与运行一致性 | `.map/.list/.su/.cyclo` 能证明 PID 主路径、状态对象、清零 helper 和静态资源条目进入某次 Debug 构建。 | 板上烧录镜像、真实耗时、栈水位、闭环稳定和硬件安全记录。 |
 下一章将进入 `PID细节与输出约束`，进一步分析 D 项平滑、积分暂停、目标变化平滑、输出限幅和速率限制如何保护闭环控制不因瞬态误差或参数不当而失控。
 
 本章新增参考资料：
