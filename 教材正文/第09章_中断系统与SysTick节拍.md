@@ -666,8 +666,12 @@ TIM8/USB 优先级为什么写 `NVIC->IP`。
 
 | 类别 | 已由本章证明 | 仍保持【待验证】 |
 |---|---|---|
-| SysTick 调度边界 | 本章证明 SysTick 1ms 节拍、`frameCounter` 与 `frame_500Hz` 置位关系 | 不展开 500Hz 分支中的传感器读取、姿态解算和控制计算，也不证明真实 500Hz 周期没有抖动或漏消费 |
-| 外设中断边界 | TIM8 与 USB 中断在当前工程中有配置、入口和构建产物证据 | 是否承担业务逻辑、是否真实触发、pending/active 状态和业务效果需在对应章节或运行记录中继续判断 |
+| 构建验证 | `.map/.list/.su/.cyclo` 能证明 SysTick、USB、TIM8 中断入口、HAL 分发函数、静态栈和圈复杂度条目进入当前 Debug 构建。 | 构建产物不能替代中断真实触发频率、pending/active 状态、`frame_500Hz` 漏消费风险或 USB/TIM8 业务效果。 |
+| 软件验证 | 本章证明 SysTick 1ms 节拍、`frameCounter` 与 `frame_500Hz` 置位关系，以及主循环消费 `frame_500Hz` 进入后续 500Hz 实时控制路径。 | 不展开 500Hz 分支中的传感器读取、姿态解算和控制计算，也不证明真实 500Hz 周期没有抖动或漏消费。 |
+| 参数验证 | SysTick 属于系统异常，优先级落在 `SCB->SHP`；TIM8/USB 属于外设 IRQ，优先级和使能分别落在 `NVIC->IP` 与 `NVIC->ISER`。 | `HAL_NVIC_SetPriority()` 仍需经过优先级分组读取、`NVIC_EncodePriority()` 编码和最终寄存器写入确认，不能只看 HAL 调用名。 |
+| 硬件验证 | TIM8 与 USB 中断在当前工程中有配置、入口和构建产物证据。 | 是否承担业务逻辑、是否真实触发、pending/active 状态、外部 USB/TIM8 业务效果和运行时节拍质量仍需实测或日志。 |
+| 官方资料待确认 | SysTick 系统异常、NVIC 外设 IRQ、优先级分组、编码和寄存器落点已按 CMSIS/HAL 语义拆开。 | 若后续修改优先级分组、中断嵌套或外设 IRQ 策略，需要结合 Arm/CMSIS/HAL 资料重新确认。 |
+| 实验待完成 | 本章已经把 SysTick 调度、500Hz 置位、10Hz 低频任务、TIM8/USB 外设中断入口和 HAL 分发路径拆成可检查对象。 | 后续需记录真实触发频率、pending/active 状态、`frame_500Hz` 漏消费、500Hz 抖动、10Hz 任务节拍和 USB/TIM8 业务效果。 |
 
 下一章可以进入 DWT 计时与微秒时间基准，因为本章已经说明了 1ms SysTick 和 HAL 毫秒时间；后续需要解释项目如何用 `micros()` 和 DWT 周期计数获得更细的时间测量。
 
