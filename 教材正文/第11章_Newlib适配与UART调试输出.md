@@ -525,7 +525,7 @@ return len
 可能原因：USB CDC 属于后续 USB 章节。当前第11章的正式主线是 Newlib 和 USART3 调试输出，不能把 USB 通信支线提前展开。
 
 这也是章节衔接的一部分：第11章说明“字符怎样从 `printf()` 出来”，
-第15章和第16章再说明“USB 怎样成为另一条通信支线”。
+USB FS 设备与 USB CDC 的完整讲解位置是第15章和第16章，本章只说明当前 `printf()` 主线没有切到 USB。
 
 从当前源码看，USB CDC 侧存在 `CDC_Transmit_FS()`，内部调用 `USBD_CDC_SetTxBuffer()` 和 `USBD_CDC_TransmitPacket()`。
 
