@@ -17,7 +17,7 @@
 | 【必须掌握】 | 第1节到第5节，第13节总结 | 需要理解 USB 48MHz、PA11/PA12、PCD、USBD中间件和初始化主链路的读者 |
 | 【工程深化】 | 第6节到第8.10.1节，第9节调试方法 | 需要维护 `MX_USB_DEVICE_Init()`、`USBD_LL_Init()`、PMA端点、PCD回调和中断桥接的读者 |
 | 【拓展阅读】 | 第6.4节到第6.5节，第8.10.1节，第10节到第12节 | 需要进一步理解EP0、标准请求、设备状态、SOF、self-powered声明和主机枚举差异的读者 |
-| 【证据与验证】 | 第8.1节到第8.10.1节、第9节、章节尾部固定检查，以及所有 `【待验证】` 项 | 需要审查 USB 初始化链路、PCD/USBD回调桥、构建产物、描述符入口、主机侧枚举日志、USB抓包或线缆/供电证据的读者 |
+| 【证据与验证】 | 第8节、第9节、章节尾部固定检查，以及所有 `【待验证】` 项 | 需要审查 USB 初始化链路、PCD/USBD回调桥、PMA配置、构建产物、描述符入口、主机侧枚举日志、USB抓包或线缆/供电证据的读者 |
 
 如果只是沿 USB 设备栈主线学习，可以先抓住“USB时钟与引脚 -> PCD底层 -> USBD中间件 -> 类注册 -> `USBD_Start()`”这条链；判断主机是否真正枚举或 CDC 是否可收发时，再回到证据边界、第16章和调试方法小节。
 
@@ -268,13 +268,13 @@ USB reset 回调最终进入 `USBD_LL_Reset()`，中间件会打开 EP0 OUT 和 
 
 ## 8. 代码分析
 
-### 1. `main.c` 中的 `MX_USB_DEVICE_Init()`
+### 8.1 `main.c` 中的 `MX_USB_DEVICE_Init()`
 
 `main()` 在系统时钟、GPIO、定时器、I2C、TIM8 和 USART3 初始化后调用 `MX_USB_DEVICE_Init()`。
 
 这个位置说明 USB Device 初始化属于系统外设初始化阶段，而不是 500Hz 实时控制循环的一部分。后续控制主循环不依赖 USB 才能执行；USB 当前更像一个已初始化的通信支线。
 
-### 2. `MX_USB_DEVICE_Init()`
+### 8.2 `MX_USB_DEVICE_Init()`
 
 `USB_DEVICE/App/usb_device.c` 中的 `MX_USB_DEVICE_Init()` 依次调用：
 
@@ -285,7 +285,7 @@ USB reset 回调最终进入 `USBD_LL_Reset()`，中间件会打开 EP0 OUT 和 
 
 这四步分别对应设备栈创建、类注册、接口注册和启动。第15章只分析这条框架链路；`FS_Desc` 和 `USBD_Interface_fops_FS` 的具体内容留到第16章。
 
-### 3. `USBD_Init()`
+### 8.3 `USBD_Init()`
 
 `USBD_Init()` 来自 `usbd_core.c`。它属于 USB Device 中间件核心函数，负责初始化 USBD 设备对象，并在内部进入底层初始化流程。
 
@@ -300,7 +300,7 @@ USB reset 回调最终进入 `USBD_LL_Reset()`，中间件会打开 EP0 OUT 和 
 从状态角度看，`USBD_Init()` 还会把设备状态初始化为 `USBD_STATE_DEFAULT`。
 这意味着它建立的是设备栈初始上下文，不代表主机已经给设备分配地址或选择配置。
 
-### 4. `USBD_LL_Init()`
+### 8.4 `USBD_LL_Init()`
 
 `USBD_LL_Init()` 位于 `usbd_conf.c`，是项目为 USB Device Library 提供的底层接口。它初始化 `hpcd_USB_FS`，调用 `HAL_PCD_Init()`，并配置 PMA。
 
@@ -308,7 +308,7 @@ USB reset 回调最终进入 `USBD_LL_Reset()`，中间件会打开 EP0 OUT 和 
 同一处初始化还把 `hpcd_USB_FS.Init.low_power_enable` 设置为 `DISABLE`，并关闭 LPM 和 battery charging。
 因此，虽然 `HAL_PCD_SuspendCallback()` 中存在低功耗条件分支，但当前仓库配置不能直接推出 USB suspend 会让 MCU 进入深睡眠。
 
-### 5. `USBD_Start()`
+### 8.5 `USBD_Start()`
 
 `USBD_Start()` 来自 `usbd_core.c`，底层会进入 `USBD_LL_Start()`。
 
@@ -321,13 +321,13 @@ USB reset 回调最终进入 `USBD_LL_Reset()`，中间件会打开 EP0 OUT 和 
 因此如果主机完全没有检测到设备，不能只盯着 `USBD_Start()`，
 还必须检查板级连接、PA11/PA12、USB 线缆、供电和主机端口【待验证】。
 
-### 6. `HAL_PCD_MspInit()`
+### 8.6 `HAL_PCD_MspInit()`
 
 `HAL_PCD_Init()` 内部会触发 MSP 初始化。项目在 `HAL_PCD_MspInit()` 中启用 USB 外设时钟并打开 USB 中断。
 
 如果只看 `MX_USB_DEVICE_Init()`，读者会以为 USB 初始化只有 USBD 函数；追踪到 MSP 后才能看到硬件资源的准备过程。
 
-### 7. `HAL_PCDEx_PMAConfig()`
+### 8.7 `HAL_PCDEx_PMAConfig()`
 
 `USBD_LL_Init()` 中多次调用 `HAL_PCDEx_PMAConfig()`，为不同端点地址配置 PMA 偏移。
 
@@ -344,7 +344,7 @@ USB reset 回调最终进入 `USBD_LL_Reset()`，中间件会打开 EP0 OUT 和 
 这说明 USB Device 栈不会在这里走普通堆分配，但它也不是 PMA 端点缓冲。
 静态分配对象服务于中间件和类驱动上下文，应用层 CDC RX/TX 缓冲仍留到第16章分析。
 
-### 8. PCD 回调桥
+### 8.8 PCD 回调桥
 
 `USB_DEVICE/Target/usbd_conf.c` 中的 PCD 回调把硬件事件送回 USB Device Library：
 
@@ -365,13 +365,13 @@ USB reset 回调最终进入 `USBD_LL_Reset()`，中间件会打开 EP0 OUT 和 
 如果 reset 回调不出现，问题还在连接、时钟、中断或主机检测之前。
 如果 reset 出现但 setup 不出现，问题可能在 EP0 或主机后续请求阶段【待验证】。
 
-### 9. `Debug/objects.list`
+### 8.9 `Debug/objects.list`
 
 `Debug/objects.list` 是构建证据。它证明 USB Device 中间件核心、CDC 类、应用层 USB 文件和目标适配文件都参与链接。
 
 这能避免一种常见误判：源码目录存在并不等于功能参与构建。当前项目通过 objects list 可以确认 USB 栈相关对象进入了 Debug 构建。
 
-### 10. `.map` 与 `.list` 的证据边界
+### 8.10 `.map` 与 `.list` 的证据边界
 
 `Debug/objects.list` 只能证明目标文件参与构建，不能证明每个函数都进入最终镜像。第15章判断 USB Device 栈是否真正接入时，还要继续看 `Debug/Three-axis_cloud_platformV2.map` 和 `Debug/Three-axis_cloud_platformV2.list`。
 
@@ -402,7 +402,7 @@ CDC 接收路径还要区分“函数表注册”和“直接分支调用”：`
 
 因此，本章的工程结论要分层写：USB Device/CDC 类初始化链路已经进入最终镜像；CDC 接收回调函数表和重新投递接收包的函数体具有构建证据；CDC 主动发送接口在当前构建中没有最终地址，发送业务应留到第16章继续核对。
 
-### 10.1 配置、描述符与枚举证据断点
+#### 8.10.1 配置、描述符与枚举证据断点
 
 USB 设备章节还要避免把“配置为 CDC”“描述符对象进入固件”和“主机已经枚举成功”混成同一个结论。当前项目可以按下面五层拆开：
 
@@ -416,7 +416,7 @@ USB 设备章节还要避免把“配置为 CDC”“描述符对象进入固件
 
 因此，第15章只能说 USB FS CDC 设备的工程配置、初始化链路和描述符入口已经具备仓库内证据；描述符字段逐项解释放到第16章，主机枚举成功则必须等到仓库外运行记录或调试记录支持，缺少证据时继续标记为【待验证】。
 
-### 本节证据边界
+### 8.11 本节证据边界
 
 本节只根据当前仓库说明文件、函数、宏、变量和调用关系。运行时频率、外部硬件表现、主机侧现象、传感器方向、电机响应或真实控制效果仍需调试记录、日志或仓库外实测证据；缺少证据时保持【待验证】。
 

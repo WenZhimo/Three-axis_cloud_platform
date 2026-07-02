@@ -18,7 +18,7 @@
 | 【必须掌握】 | 第1节到第5节，第13节总结 | 需要理解 USB CDC 接口框架、静态内存、收发入口和描述符主线的读者 |
 | 【工程深化】 | 第6节到第8.13节，第9节调试方法 | 需要维护 CDC 回调、端点、line coding、发送状态和唯一序列号路径的读者 |
 | 【拓展阅读】 | 第6.7节到第6.8节，第10节到第12节 | 需要进一步理解 VID/PID、self-powered 声明、包长、`USBD_BUSY` 和主机枚举差异的读者 |
-| 【证据与验证】 | 第8.1节到第8.13节、第9节、章节尾部固定检查，以及所有 `【待验证】` 项 | 需要审查静态内存钩子、CDC类注册、收发回调、描述符路径、构建产物、主机侧枚举证据、USB 抓包或业务协议边界的读者 |
+| 【证据与验证】 | 第8节、第9节、章节尾部固定检查，以及所有 `【待验证】` 项 | 需要审查静态内存钩子、CDC类注册、收发回调、函数表、描述符路径、构建产物、主机侧枚举证据、USB 抓包或业务协议边界的读者 |
 
 如果只是沿 USB 通信接口主线学习，可以先抓住“静态内存钩子 -> CDC 类注册 -> 收发回调 -> 描述符与序列号”这条链；判断是否真的完成主机通信或业务协议时，再回到构建证据、调试方法和待验证项。
 
@@ -389,25 +389,25 @@ VID/PID 也要用数字值和工程含义分开看。
 
 ## 8. 代码分析
 
-### 1. `USBD_static_malloc()`
+### 8.1 `USBD_static_malloc()`
 
 该函数位于 `usbd_conf.c`。它返回静态数组 `mem`，数组大小覆盖 `USBD_CDC_HandleTypeDef`。
 
 它的输入参数名是 `size`，但当前实现不根据 `size` 分配不同大小。这是 CubeMX 生成 USB Device 工程中常见的固定类对象分配方式。本章不把它扩展成通用内存管理器。
 
-### 2. `USBD_static_free()`
+### 8.2 `USBD_static_free()`
 
 该函数为空实现。由于分配的是静态数组，不需要像堆内存那样释放。
 
 调试时如果看到 `USBD_free`，要记住它在当前项目中只是映射到这个空释放函数。
 
-### 3. `USBD_CDC_RegisterInterface()`
+### 8.3 `USBD_CDC_RegisterInterface()`
 
 该调用位于 `usb_device.c`。它把 `USBD_Interface_fops_FS` 交给 CDC 类驱动，使 CDC 类在初始化、控制请求和接收数据时能回调到应用侧函数。
 
 这一句是 `usb_device.c` 和 `usbd_cdc_if.c` 的连接点。
 
-### 4. `CDC_Init_FS()`
+### 8.4 `CDC_Init_FS()`
 
 该函数设置 CDC 发送和接收缓冲区：
 
@@ -416,13 +416,13 @@ VID/PID 也要用数字值和工程含义分开看。
 
 这一步说明 USB CDC 接口启动时已经具备基本缓冲区。缓冲区大小来自 `APP_TX_DATA_SIZE` 和 `APP_RX_DATA_SIZE`。
 
-### 5. `CDC_Control_FS()`
+### 8.5 `CDC_Control_FS()`
 
 该函数包含 CDC 类控制命令的 switch 分支，例如 `CDC_SET_LINE_CODING`、`CDC_GET_LINE_CODING`、`CDC_SET_CONTROL_LINE_STATE` 等。
 
 当前各分支基本为空，仅返回 `USBD_OK`。因此本项目没有使用这些控制请求来保存波特率、停止位、校验位或数据位配置。对于 USB CDC 虚拟串口来说，主机侧看到的串口参数不等于 MCU 内部真实 USART 参数；当前项目没有把这些参数映射到任何业务外设。
 
-### 6. `CDC_Receive_FS()`
+### 8.6 `CDC_Receive_FS()`
 
 该函数收到数据后立即重新挂接接收缓冲并继续接收。它没有复制数据到项目命令缓冲区，也没有解析协议。
 
@@ -430,13 +430,13 @@ VID/PID 也要用数字值和工程含义分开看。
 
 这条事实很关键：有接收回调不等于有上位机命令协议。
 
-### 7. `CDC_Transmit_FS()`
+### 8.7 `CDC_Transmit_FS()`
 
 该函数检查 `TxState`，避免上一包未发完时继续发新包。返回值可能是 `USBD_OK`、`USBD_FAIL` 或 `USBD_BUSY`。
 
 它是项目未来通过 USB CDC 发数据的入口，但当前源码未发现业务调用。
 
-### 8. `USBD_CDC_Init()`
+### 8.8 `USBD_CDC_Init()`
 
 该函数位于 `usbd_cdc.c`。配置完成后，CDC 类通过它打开数据 IN、数据 OUT 和命令 IN 端点。
 
@@ -444,7 +444,7 @@ VID/PID 也要用数字值和工程含义分开看。
 
 这说明 `USBD_static_malloc()` 的实际服务对象是 CDC 类运行时状态，而不是任意业务对象。
 
-### 9. `USBD_CDC_DataOut()`
+### 8.9 `USBD_CDC_DataOut()`
 
 该函数是 CDC OUT 数据进入应用回调的中间层。
 
@@ -452,23 +452,23 @@ VID/PID 也要用数字值和工程含义分开看。
 
 这条链路说明：如果未来要加入上位机命令解析，不能只看 `CDC_Receive_FS()`，还要理解 `RxLength` 和 OUT 端点数据到应用回调的传递路径。
 
-### 10. `USBD_CDC_DataIn()`
+### 8.10 `USBD_CDC_DataIn()`
 
 该函数在 IN 端点发送完成后运行。普通情况下它会把 `hcdc->TxState` 清为 0。
 
 这解释了 `CDC_Transmit_FS()` 为什么要先检查 `TxState`：没有发送完成事件之前，再次发送会返回 `USBD_BUSY`。
 
-### 11. `FS_Desc`
+### 8.11 `FS_Desc`
 
 `FS_Desc` 是 `USBD_DescriptorsTypeDef` 类型对象。`USBD_Init()` 使用它把描述符函数交给 USB Device Library。
 
 主机枚举时，USB Device Library 会通过这些函数取得设备描述符、字符串描述符和序列号描述符。
 
-### 12. `Get_SerialNum()`
+### 8.12 `Get_SerialNum()`
 
 该函数读取 STM32 唯一 ID，并生成序列号字符串。它不是随机数，也不是固定常量。不同 MCU 理论上应生成不同的序列号字符串，但当前仓库没有主机枚举日志或实际设备验证记录，主机侧显示结果仍标记为【待验证】。
 
-### 13. 构建产物证据边界
+### 8.13 构建产物证据边界
 
 第16章不能只依据源码目录和头文件判断 CDC 接口是否参与最终固件，还要分开看 `.map` 与 `.list`。
 
@@ -480,7 +480,7 @@ VID/PID 也要用数字值和工程含义分开看。
 
 `.list` 对接收和控制请求提供了更细的证据：`CDC_Init_FS()` 里能看到对 `USBD_CDC_SetTxBuffer()` 和 `USBD_CDC_SetRxBuffer()` 的分支调用；`CDC_Receive_FS()` 里能看到对 `USBD_CDC_SetRxBuffer()` 和 `USBD_CDC_ReceivePacket()` 的分支调用；`USBD_CDC_Setup()` 中能看到类请求经 `pUserData->Control()` 回到 `CDC_Control_FS()`，并通过 `USBD_CtlSendData()` 或 `USBD_CtlPrepareRx()` 处理 EP0 数据阶段。由于 `CDC_Control_FS()` 的 line coding 分支没有写入明确配置值，这些调用证据仍不能推出固件保存了主机串口参数。
 
-#### 接收、发送与业务协议证据边界
+#### 8.13.1 接收、发送与业务协议证据边界
 
 USB CDC 最容易被误读成“能枚举就等于能通信，能通信就等于有业务协议”。本项目必须按路径拆开：
 
@@ -493,7 +493,7 @@ USB CDC 最容易被误读成“能枚举就等于能通信，能通信就等于
 
 因此，本章对 USB CDC 的结论必须使用四个不同层级的措辞：描述符可枚举、控制请求可进入、OUT 数据可回调、业务协议已生效。当前仓库只能证明前三者中的一部分静态路径；最后一层仍缺少解析逻辑、调用点、主机日志和运行记录【待验证】。
 
-#### 函数表证据断点
+#### 8.13.2 函数表证据断点
 
 `USBD_Interface_fops_FS` 是一个很容易被过度解释的证据点。它在 `usbd_cdc_if.c` 中保存 `CDC_Init_FS`、`CDC_DeInit_FS`、`CDC_Control_FS` 和 `CDC_Receive_FS` 四个函数入口；`USBD_CDC_RegisterInterface()` 再把这个函数表地址写入 `pdev->pUserData`。这能证明应用层 CDC 回调已经注册到 USB Device 栈，但不能证明每个回调都已经被主机触发。
 
