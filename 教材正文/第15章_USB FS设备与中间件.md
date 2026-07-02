@@ -388,9 +388,20 @@ USB reset 回调最终进入 `USBD_LL_Reset()`，中间件会打开 EP0 OUT 和 
 
 `Debug/objects.list` 只能证明目标文件参与构建，不能证明每个函数都进入最终镜像。第15章判断 USB Device 栈是否真正接入时，还要继续看 `Debug/Three-axis_cloud_platformV2.map` 和 `Debug/Three-axis_cloud_platformV2.list`。
 
-`.map` 的最终内存映射区能看到 `MX_USB_DEVICE_Init()`、`USBD_Init()`、`USBD_RegisterClass()`、`USBD_CDC_RegisterInterface()`、`USBD_Start()`、`USBD_LL_Init()`、PCD 回调桥函数、`CDC_Init_FS()` 和 `CDC_Receive_FS()` 等符号具有最终地址。这说明设备栈初始化、CDC 类注册、底层 PCD 连接和 CDC 接收相关回调函数进入了最终 ELF。
+`.map` 的最终内存映射区能把 USB Device 栈证据拆成三类：
 
-`.list` 提供更强的调用证据：`main()` 中存在到 `MX_USB_DEVICE_Init()` 的分支调用；`MX_USB_DEVICE_Init()` 内部依次调用 `USBD_Init()`、`USBD_RegisterClass()`、`USBD_CDC_RegisterInterface()` 和 `USBD_Start()`；`USB_LP_CAN1_RX0_IRQHandler()` 会把中断交给 `HAL_PCD_IRQHandler(&hpcd_USB_FS)`；PCD 处理路径中可以看到 reset、setup、data in/out、SOF 等回调桥的调用点。
+- 设备栈初始化：`MX_USB_DEVICE_Init()`、`USBD_Init()`、`USBD_RegisterClass()`、`USBD_CDC_RegisterInterface()` 和 `USBD_Start()` 具有最终地址。
+- 底层 PCD 连接：`USBD_LL_Init()` 和 PCD 回调桥函数具有最终地址。
+- CDC 接收入口：`CDC_Init_FS()` 和 `CDC_Receive_FS()` 具有最终地址。
+
+这说明设备栈初始化、CDC 类注册、底层 PCD 连接和 CDC 接收相关回调函数进入了最终 ELF。
+
+`.list` 提供更强的调用证据，也要分开看：
+
+- 主线入口：`main()` 中存在到 `MX_USB_DEVICE_Init()` 的分支调用。
+- 初始化顺序：`MX_USB_DEVICE_Init()` 内部依次调用 `USBD_Init()`、`USBD_RegisterClass()`、`USBD_CDC_RegisterInterface()` 和 `USBD_Start()`。
+- 中断分发：`USB_LP_CAN1_RX0_IRQHandler()` 会把中断交给 `HAL_PCD_IRQHandler(&hpcd_USB_FS)`。
+- 回调桥接：PCD 处理路径中可以看到 reset、setup、data in/out、SOF 等回调桥的调用点。
 
 `Debug/USB_DEVICE/App/usb_device.su` 和对应 `.cyclo` 文件还能看到 `MX_USB_DEVICE_Init` 的函数级静态资源记录：静态栈使用量为 8 字节，圈复杂度为 5。
 
