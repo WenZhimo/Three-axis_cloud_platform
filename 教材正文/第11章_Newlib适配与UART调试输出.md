@@ -305,9 +305,20 @@ current _write(buf, N):
 
 当前 `.map` 文件进一步证明了浮点格式化代码被拉入链接结果：其中可以看到 `_printf_float` 和 `_scanf_float` 来自 `libc_nano.a`。这比只看 IDE 选项更接近最终固件事实。
 
-继续沿 map 文件向下读，还能看到浮点格式化不是一个孤立符号。当前构建中，`libc_a-nano-vfprintf_float.o` 因 `_printf_float` 被纳入，`libc_a-nano-vfscanf_float.o` 因 `_scanf_float` 被纳入；随后 map 又显示 `libc_a-dtoa.o` 提供 `_dtoa_r`，`libc_a-malloc.o` 提供 `malloc`，`libc_a-mallocr.o` 提供 `_malloc_r`，`libc_a-sbrkr.o` 提供 `_sbrk_r`。这条链路说明：浮点格式化能力可能把双精度转换、堆分配包装和 `_sbrk()` 底层入口一起带入 ELF。
+继续沿 map 文件向下读，还能看到浮点格式化不是一个孤立符号。
 
-但是这里必须区分“符号被拉入”和“某次运行已经执行”。map 能证明这些库成员进入当前 Debug ELF，也能说明 Flash 体积和潜在 RAM/堆路径会受到影响；它不能单独证明每一次 `printf("%.6f", value)` 都触发了 `malloc()`、`_sbrk_r()` 或最坏栈峰值。要证明实际运行路径，需要在 `_printf_float`、`_dtoa_r`、`_malloc_r`、`_sbrk()` 等位置断点，或记录 `_sbrk()` 返回值、堆顶变化、栈水位和现场日志。
+当前构建中的链接链路可以分成两类：
+
+- 浮点格式化入口：`libc_a-nano-vfprintf_float.o` 因 `_printf_float` 被纳入，`libc_a-nano-vfscanf_float.o` 因 `_scanf_float` 被纳入。
+- 后续库成员：map 又显示 `libc_a-dtoa.o` 提供 `_dtoa_r`，`libc_a-malloc.o` 提供 `malloc`，`libc_a-mallocr.o` 提供 `_malloc_r`，`libc_a-sbrkr.o` 提供 `_sbrk_r`。
+
+这条链路说明：浮点格式化能力可能把双精度转换、堆分配包装和 `_sbrk()` 底层入口一起带入 ELF。
+
+但是这里必须区分“符号被拉入”和“某次运行已经执行”：
+
+- map 能证明这些库成员进入当前 Debug ELF，也能说明 Flash 体积和潜在 RAM/堆路径会受到影响。
+- map 不能单独证明每一次 `printf("%.6f", value)` 都触发了 `malloc()`、`_sbrk_r()` 或最坏栈峰值。
+- 要证明实际运行路径，需要在 `_printf_float`、`_dtoa_r`、`_malloc_r`、`_sbrk()` 等位置断点，或记录 `_sbrk()` 返回值、堆顶变化、栈水位和现场日志。
 
 但 `-u _scanf_float` 只代表浮点扫描格式支持被链接，不代表当前项目已经实现了可用的 UART 标准输入。`syscalls.c` 的弱 `_read()` 依赖 `__io_getchar()`，而本章证据链没有发现项目把 `__io_getchar()` 强实现为 USART3 接收。因此本章只能确认浮点输出链路，不能把 `scanf("%f")` 当作已验证功能。
 
