@@ -235,7 +235,23 @@ USB_DEVICE/Target
 
 `Debug/objects.list` 则列出链接输入对象，例如 `main.o`、`startup_stm32f103rctx.o`、`drv_pwmMotors.o`、`computeMotorCommands.o`、`pid.o` 和 USB Device 相关对象。
 
-这里还要再分一层：`Debug/sources.mk` 只负责汇总“有哪些源目录参与构建”，真正把这些目录接进构建流程的是顶层 `Debug/makefile` 里的 `-include .../subdir.mk`。当前 makefile 明确包含了 `Core/Src/subdir.mk`、`Core/Startup/subdir.mk`、`Drivers/CustomDrivers/Src/subdir.mk`、`Drivers/SRC/Src/subdir.mk`、`Drivers/STM32F1xx_HAL_Driver/Src/subdir.mk`、`Middlewares/ST/STM32_USB_Device_Library/Core/Src/subdir.mk`、`Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Src/subdir.mk`、`USB_DEVICE/App/subdir.mk` 和 `USB_DEVICE/Target/subdir.mk`。这说明工程不只是“列出了目录”，而是把每个目录的编译规则真正纳入了 Debug 构建。若 `.cproject` 改了但 `Debug/makefile` 和各级 `subdir.mk` 没更新，教材应优先按生成出来的构建规则判断当前 Debug 实际会编哪些源文件，而不是只看配置源头。
+这里还要再分一层：`Debug/sources.mk` 只负责汇总“有哪些源目录参与构建”，真正把这些目录接进构建流程的是顶层 `Debug/makefile` 里的 `-include .../subdir.mk`。
+
+当前 makefile 明确包含了这些目录规则：
+
+- `Core/Src/subdir.mk`
+- `Core/Startup/subdir.mk`
+- `Drivers/CustomDrivers/Src/subdir.mk`
+- `Drivers/SRC/Src/subdir.mk`
+- `Drivers/STM32F1xx_HAL_Driver/Src/subdir.mk`
+- `Middlewares/ST/STM32_USB_Device_Library/Core/Src/subdir.mk`
+- `Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Src/subdir.mk`
+- `USB_DEVICE/App/subdir.mk`
+- `USB_DEVICE/Target/subdir.mk`
+
+这说明工程不只是“列出了目录”，而是把每个目录的编译规则真正纳入了 Debug 构建。
+
+若 `.cproject` 改了但 `Debug/makefile` 和各级 `subdir.mk` 没更新，教材应优先按生成出来的构建规则判断当前 Debug 实际会编哪些源文件，而不是只看配置源头。
 
 这些文件能证明当前 Debug 构建产物的链接输入，但它们是生成结果，不是配置源头。若手动改了 `.cproject` 但没有重新生成或构建，Debug 目录可能仍保留旧产物。
 
@@ -243,7 +259,24 @@ USB_DEVICE/Target
 
 第02章只建立工程结构索引，但读者仍需要知道几个 Debug 文件的证明力不同，不能把它们混成“构建成功”的单一证据。
 
-`Debug/makefile` 是构建规则证据。当前 `main-build` 目标依赖 `Three-axis_cloud_platformV2.elf` 和 `secondary-outputs`；链接规则写明 `Three-axis_cloud_platformV2.elf Three-axis_cloud_platformV2.map: $(OBJS) $(USER_OBJS) ... STM32F103RCTX_FLASH.ld makefile objects.list`，并使用 `arm-none-eabi-gcc -o "Three-axis_cloud_platformV2.elf" @"objects.list" ... -T".../STM32F103RCTX_FLASH.ld" -Wl,-Map="Three-axis_cloud_platformV2.map"`。这证明 Debug 构建规则意图用 `objects.list` 和链接脚本生成 ELF 与 map 文件。
+`Debug/makefile` 是构建规则证据。当前 `main-build` 目标依赖 `Three-axis_cloud_platformV2.elf` 和 `secondary-outputs`。
+
+链接规则写明：
+
+```text
+Three-axis_cloud_platformV2.elf Three-axis_cloud_platformV2.map:
+    $(OBJS) $(USER_OBJS) ... STM32F103RCTX_FLASH.ld makefile objects.list
+```
+
+链接命令使用：
+
+```text
+arm-none-eabi-gcc -o "Three-axis_cloud_platformV2.elf" @"objects.list" ...
+    -T"../STM32F103RCTX_FLASH.ld"
+    -Wl,-Map="Three-axis_cloud_platformV2.map"
+```
+
+这证明 Debug 构建规则意图用 `objects.list` 和链接脚本生成 ELF 与 map 文件。
 
 `Debug/objects.list` 是链接输入证据。它能证明 `./Core/Src/main.o`、`./Core/Startup/startup_stm32f103rctx.o` 等对象被列为链接输入，但不能证明对象里的每个函数最终都保留；后续是否被 `--gc-sections` 丢弃，要继续看 `.map`。
 
