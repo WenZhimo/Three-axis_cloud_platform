@@ -546,8 +546,12 @@ AFIO 时钟对应 `RCC->APB2ENR[0] = 1`，并能解释
 
 | 类别 | 已由本章证明 | 仍保持【待验证】 |
 |---|---|---|
-| 调试接口边界 | 保留 SWD 引脚和关闭 JTAG 是仓库内配置证据 | 不等于已经连接到真实目标板，ST-LINK/GDB 实际连接仍需运行记录或现场证据 |
-| 串口重映射边界 | USART3 重映射能证明 PC10/PC11 引脚路径前提 | 实际 `printf` 输出留到第11章验证，不能把重映射配置直接写成主机端已收到串口日志 |
+| 构建验证 | `.map/.list/.su/.cyclo` 能证明 `HAL_MspInit()`、`HAL_UART_MspInit()`、NOJTAG/USART3 partial remap 源码旁注、静态栈和圈复杂度条目进入当前 Debug 构建。 | 构建产物不能替代 `AFIO->MAPR` 运行观察、ST-LINK/GDB 日志、串口主机日志或外部波形证据。 |
+| 软件验证 | 保留 SWD 引脚、关闭 JTAG 和 USART3 partial remap 能说明仓库内调试接口保留与 PC10/PC11 引脚路径前提。 | 不能把重映射配置直接写成主机端已收到串口日志，实际 `printf` 输出留到第11章验证。 |
+| 参数验证 | `AFIO_REMAP_PARTIAL()` 内部出现的 `AFIO_MAPR_SWJ_CFG = 0x07000000` 是掩码常量，不是项目最终调试接口目标值。 | 不能把掩码误读成关闭 SW-DP；USART3_REMAP[1:0]、SWJ_CFG 位和最终 `AFIO->MAPR` 值仍需运行观察确认。 |
+| 硬件验证 | 仓库内证据能说明 SWD 保留、JTAG 关闭和 USART3 重映射配置意图。 | 不等于已经连接到真实目标板；ST-LINK/GDB 实际连接、PC10/PC11 外部波形和串口主机日志仍需现场证据。 |
+| 官方资料待确认 | AFIO 重映射、NOJTAG、SWJ_CFG、USART3 partial remap 和 `AFIO->MAPR` 位语义可作为本章资料边界。 | 若后续修改调试口或串口重映射策略，需要结合 ST 参考手册和 HAL 宏实现重新确认。 |
+| 实验待完成 | 本章已经把调试接口保留、USART3 重映射、`AFIO->MAPR` 读改写和后续 UART/ST-LINK 验证拆成可检查对象。 | 后续需记录 `AFIO->MAPR` 运行值、ST-LINK/GDB 连接日志、PC10/PC11 波形、串口主机日志和第11章 `printf` 输出路径。 |
 
 下一章可以进入中断系统与 SysTick 节拍，因为平台、时钟、MSP、GPIO 复用和调试接口保留已经建立，后续可以分析周期性调度和中断入口。
 
