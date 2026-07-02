@@ -842,13 +842,15 @@ USB CDC 调试应先区分“设备能枚举”“虚拟串口能出现”“项
 - `bmAttributes=0xC0`、`USBD_SELF_POWERED=1` 和 `MaxPower=0x32` 只是描述符/协议层声明，硬件供电真实性仍需验证。
 - `.map/.list/.su/.cyclo` 的构建产物结论统一回到第13节判断：它们能证明 CDC 类函数、描述符对象、回调表、RX/TX 缓冲、字符串缓冲、接收回调、EP0 控制请求路径、静态栈和圈复杂度条目进入某次 Debug 构建；但 `CDC_Transmit_FS()` 与 `USBD_CDC_TransmitPacket()` 当前缺少最终镜像和业务调用证据，也不能替代主机侧 CDC 通信成功记录。
 
-本章边界：
+本章待验证分类：
 
-- 本章证明 USB CDC 接口、描述符和静态内存路径存在，不证明 USB CDC 已承担当前调试输出主线。
-- `CDC_Receive_FS()` 当前没有业务协议解析证据；`CDC_Transmit_FS()` 当前没有最终链接地址和业务调用证据。
-- `CDC_Control_FS()` 当前没有保存或返回明确 line coding 数据，主机串口参数不能写成项目配置。
-- 当前 `CDC_Transmit_FS()` 包装函数不应被理解为任意时刻安全可用的日志后端；调用前应确认 configured、`pClassData` 和 busy 策略。
-- 主机是否成功绑定 CDC/ACM 驱动、出现虚拟串口和完成收发，仍需主机侧证据，当前保持【待验证】。
+| 类别 | 已由本章证明 | 仍保持【待验证】 |
+|---|---|---|
+| CDC 接口边界 | 本章证明 USB CDC 接口、描述符和静态内存路径存在 | 不证明 USB CDC 已承担当前调试输出主线 |
+| 收发业务边界 | `CDC_Receive_FS()`、`CDC_Transmit_FS()` 在源码中存在对应接口实现 | `CDC_Receive_FS()` 当前没有业务协议解析证据；`CDC_Transmit_FS()` 当前没有最终链接地址和业务调用证据 |
+| Line coding 边界 | `CDC_Control_FS()` 能响应 CDC 控制请求入口 | 当前没有保存或返回明确 line coding 数据，主机串口参数不能写成项目配置 |
+| 日志后端边界 | `CDC_Transmit_FS()` 包装函数提供了发送接口形态 | 不应理解为任意时刻安全可用的日志后端；调用前应确认 configured、`pClassData` 和 busy 策略 |
+| 主机侧验证边界 | 仓库内 USB CDC 代码能证明设备侧描述符和接口路径 | 主机是否成功绑定 CDC/ACM 驱动、出现虚拟串口和完成收发，仍需主机侧证据，当前保持【待验证】 |
 
 下一章可以进入项目数据结构与配置对象。到这里，USB 支线已经完成：教材确认了 USB Device 初始化、CDC 接口和描述符，但也明确当前项目主调试输出仍是 USART3，USB CDC 未被证明承担业务协议解析。
 
