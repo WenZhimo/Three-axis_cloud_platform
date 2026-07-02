@@ -1637,11 +1637,12 @@ Pitch/Yaw 分支则直接把 `pidCmd - pidCmdPrev` 与 `eepromConfig.rateLimit` 
 
 | 类别 | 已由本章证明 | 仍保持【待验证】 |
 |---|---|---|
-| PID参数生效 | `config.c` 默认值、`main.c` 覆盖值、`.map/.list` 构建路径和 `eepromConfig.PID[]` 对象层级已经分开。 | 重新构建后的参数一致性、目标板 RAM 实际参数和 EEPROM 持久化恢复。 |
-| 时间步长与状态 | `deltaT` 回退、`safeDt` 分层、`iTerm`、D 项历史和 `lastDcalcValue` 哨兵边界已经按源码拆分。 | 某次运行是否触发回退、连续帧状态演化和哨兵值真实来源。 |
-| 三轴调用差异 | Pitch、Yaw、Roll 的 `updatePID()` 调用入口、轴使能和 `return_state_roll` 分支已经区分。 | 轴使能组合、Roll 分支状态、跨轴积分暂停和真实调试日志。 |
-| 后级输出约束 | `pidCmdPrev[]`、`outputRate[]` 和 `rateLimit` 属于 PID 后级边界，已与 `updatePID()` 主公式分开。 | Roll/Pitch/Yaw 限速单位设计、机械响应、方向和稳定性。 |
-| 构建与运行一致性 | `.map/.list/.su/.cyclo` 能证明 PID 主路径、状态对象、清零 helper 和静态资源条目进入某次 Debug 构建。 | 板上烧录镜像、真实耗时、栈水位、闭环稳定和硬件安全记录。 |
+| 构建验证 | `.map/.list/.su/.cyclo` 能证明 PID 主路径、状态对象、清零 helper 和静态资源条目进入某次 Debug 构建。 | 不能替代板上烧录镜像、真实耗时、栈水位、闭环稳定和硬件安全记录。 |
+| 软件验证 | Pitch、Yaw、Roll 的 `updatePID()` 调用入口、轴使能和 `return_state_roll` 分支已经区分；`deltaT` 回退、`safeDt` 分层、`iTerm`、D 项历史和 `lastDcalcValue` 哨兵边界已经按源码拆分。 | 某次运行是否触发回退、连续帧状态演化、哨兵值真实来源、轴使能组合、Roll 分支状态和跨轴积分暂停仍需真实调试日志。 |
+| 参数验证 | `config.c` 默认值、`main.c` 覆盖值、`.map/.list` 构建路径和 `eepromConfig.PID[]` 对象层级已经分开；`pidCmdPrev[]`、`outputRate[]` 和 `rateLimit` 已与 `updatePID()` 主公式分开。 | 重新构建后的参数一致性、目标板 RAM 实际参数、EEPROM 持久化恢复，以及 Roll/Pitch/Yaw 限速单位设计仍需单独验证。 |
+| 硬件验证 | 本章说明 PID 输出最终会影响三轴控制输出，并把后级输出约束与 PID 主公式分开。 | 机械响应、方向、稳定性、闭环安全和执行器实际效果仍需仓库外硬件记录。 |
+| 官方资料待确认 | PID 控制理论、积分项、微分项、输出限速和防饱和思路可用经典 PID 文献作为判读背景。 | 当前源码实现、参数单位、限速设计和轴间差异是否完全符合这些资料前提仍需结合运行记录确认。 |
+| 实验待完成 | 本章已经给出参数来源、三轴调用、时间步长、状态变量、后级约束和构建证据的检查口径。 | 目标板 RAM 参数、EEPROM 恢复、连续帧状态、真实调试日志、输出限速效果、闭环稳定和硬件安全记录仍需运行记录闭合。 |
 下一章将进入 `PID细节与输出约束`，进一步分析 D 项平滑、积分暂停、目标变化平滑、输出限幅和速率限制如何保护闭环控制不因瞬态误差或参数不当而失控。
 
 本章新增参考资料：
